@@ -26,21 +26,67 @@ ASSISTANTS: dict[str, AssistantFactory] = {"codex": CodexAssistant, "copilot": C
 
 
 def command(args: list[str], *, cwd: Path | None = None, stdin: str | None = None,
-            log: Path | None = None, check: bool = True,
+            log: Path | None = None, json_log: Path | None = None, check: bool = True,
             env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     # Echo commands so a run can be reproduced or diagnosed from its console output.
     print("+", shlex.join(args), flush=True)
     proc = subprocess.run(args, cwd=cwd, input=stdin, text=True, env=env,
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE if json_log is not None else subprocess.STDOUT)
+    output = proc.stdout + (proc.stderr or "") if json_log is not None else proc.stdout
+    if json_log is not None:
+        json_log.parent.mkdir(parents=True, exist_ok=True)
+        json_log.write_text(proc.stdout)
     if log is not None:
         log.parent.mkdir(parents=True, exist_ok=True)
-        log.write_text(proc.stdout)
+        readable = _readable_jsonl(proc.stdout) if json_log is not None else proc.stdout
+        if json_log is not None and proc.stderr:
+            readable += f"\n[stderr]\n{proc.stderr}"
+        log.write_text(readable)
         print(f"  Output saved: {log}", flush=True)
+        if json_log is not None:
+            print(f"  Raw JSONL saved: {json_log}", flush=True)
     elif proc.returncode != 0 or args[:2] == ["git", "status"]:
-        print(proc.stdout[-4000:], flush=True)
+        print(output[-4000:], flush=True)
     if check and proc.returncode:
-        raise RuntimeError(f"Command failed ({proc.returncode}): {shlex.join(args)}\n{proc.stdout[-3000:]}")
+        raise RuntimeError(f"Command failed ({proc.returncode}): {shlex.join(args)}\n{output[-3000:]}")
+    if json_log is not None:
+        return subprocess.CompletedProcess(args, proc.returncode, output, proc.stderr)
     return proc
+
+
+def _readable_jsonl(output: str) -> str:
+    """Render useful event text while retaining the original stream separately."""
+    lines = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            lines.append(line)
+            continue
+        if not isinstance(event, dict):
+            lines.append(str(event))
+            continue
+
+        event_type = event.get("type", "event")
+        item = event.get("item")
+        data = event.get("data")
+        text = None
+        if event_type == "item.completed" and isinstance(item, dict):
+            text = item.get("text") or item.get("aggregated_output")
+        elif event_type == "assistant.message" and isinstance(data, dict):
+            text = data.get("content")
+        if isinstance(text, str) and text:
+            lines.append(text)
+        elif event_type not in {"assistant.message_delta", "assistant.message_start"}:
+            details = data if isinstance(data, dict) else item if isinstance(item, dict) else {}
+            summary = {key: value for key, value in details.items()
+                       if not isinstance(value, (dict, list))}
+            suffix = f" {json.dumps(summary, ensure_ascii=False)}" if summary else ""
+            lines.append(f"[{event_type}]{suffix}")
+    return "\n".join(lines) + ("\n" if lines else "")
 
 
 def parser(argv: list[str] | None = None) -> argparse.ArgumentParser:

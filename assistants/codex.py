@@ -29,7 +29,7 @@ class CodexAssistant:
 
     def run(self, workspace: Path, prompt: str, issue_dir: Path,
             command: CommandRunner) -> None:
-        args = ["codex", "exec", "--sandbox", "workspace-write", "--cd", str(workspace)]
+        args = ["codex", "exec", "--json", "--sandbox", "workspace-write", "--cd", str(workspace)]
         if self.model:
             args += ["--model", self.model]
         if self.reasoning_effort:
@@ -37,6 +37,7 @@ class CodexAssistant:
         if self.allow_network:
             args += ["-c", "sandbox_workspace_write.network_access=true"]
         args += ["-"]
-        result = command(args, cwd=workspace, stdin=prompt, log=issue_dir / "codex.log", check=False)
+        result = command(args, cwd=workspace, stdin=prompt, log=issue_dir / "codex.log",
+                 json_log=issue_dir / "codex.jsonl", check=False)
         if result.returncode:
             raise RuntimeError(f"Codex failed with exit code {result.returncode}; see codex.log")

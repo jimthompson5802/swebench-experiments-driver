@@ -8,15 +8,16 @@ from assistants.copilot import CopilotAssistant
 
 
 @pytest.mark.parametrize("adapter,options,expected", [
-    (CodexAssistant, [], ["codex", "exec", "--sandbox", "workspace-write", "--cd", "WORKSPACE", "-"]),
+        (CodexAssistant, [], ["codex", "exec", "--json", "--sandbox", "workspace-write", "--cd", "WORKSPACE", "-"]),
     (CodexAssistant, ["--model", "m", "--reasoning-effort", "high", "--allow-network"],
-     ["codex", "exec", "--sandbox", "workspace-write", "--cd", "WORKSPACE", "--model", "m",
+         ["codex", "exec", "--json", "--sandbox", "workspace-write", "--cd", "WORKSPACE", "--model", "m",
       "-c", 'model_reasoning_effort="high"', "-c", "sandbox_workspace_write.network_access=true", "-"]),
     (CopilotAssistant, [], ["copilot", "--no-ask-user", "--sandbox", "--allow-tool=write,shell",
-                            "--disable-builtin-mcps", "--excluded-tools=web_fetch"]),
+                                                        "--disable-builtin-mcps", "--excluded-tools=web_fetch", "--output-format=json"]),
     (CopilotAssistant, ["--model", "m", "--reasoning-effort", "max"],
      ["copilot", "--no-ask-user", "--sandbox", "--allow-tool=write,shell",
-      "--disable-builtin-mcps", "--excluded-tools=web_fetch", "--model", "m", "--reasoning-effort", "max"]),
+            "--disable-builtin-mcps", "--excluded-tools=web_fetch", "--output-format=json",
+            "--model", "m", "--reasoning-effort", "max"]),
 ])
 def test_adapter_invocation(tmp_path, monkeypatch, adapter, options, expected):
     monkeypatch.setenv("COPILOT_ALLOW_ALL", "true")
@@ -40,7 +41,8 @@ def test_adapter_invocation(tmp_path, monkeypatch, adapter, options, expected):
         assert env["COPILOT_ALLOW_ALL"] == "false"
         assert env["TEST_PASSTHROUGH"] == "preserved"
     assert kwargs == {"cwd": workspace, "stdin": "issue prompt",
-                      "log": tmp_path / f"{assistant.name}.log", "check": False}
+                      "log": tmp_path / f"{assistant.name}.log",
+                      "json_log": tmp_path / f"{assistant.name}.jsonl", "check": False}
 
 
 @pytest.mark.parametrize("adapter", [CodexAssistant, CopilotAssistant])

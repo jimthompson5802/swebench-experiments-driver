@@ -107,7 +107,16 @@ The tests use a stub dataset and do not require dataset downloads, Codex, Copilo
 
 ## Assistant adapters
 
-The shared interface in `assistants/interface.py` describes how an adapter registers options and runs an assistant. The Codex and Copilot adapters own their CLI-specific commands and settings. The driver owns the shared checkout, prompt, patch extraction, and evaluation workflow. To add an assistant, implement the interface, register it in the driver, and add tests for its command and permissions.
+The shared interface in `assistants/interface.py` describes how an adapter registers
+options and runs an assistant. The Codex and Copilot adapters own their CLI-specific
+commands and settings. The driver owns the shared checkout, prompt, patch extraction,
+and evaluation workflow.
+
+The driver builds the prompt from the issue description and saves a copy as
+`prompt.txt`. It sends the same prompt through stdin. Codex reads stdin using the
+trailing `-`; Copilot reads piped stdin without a prompt argument. JSON output changes
+only stdout formatting, not prompt delivery. To add an assistant, implement the
+interface, register it in the driver, and add tests for its command and permissions.
 
 ## Find results
 
@@ -118,7 +127,11 @@ Each run writes to `$SWEBENCH_EXPERIMENTS_DIR/runs/<run-id>/` when you pass `--r
 | `generation_status.json` | Per-issue patch generation status and any errors |
 | `run_metadata.json` | Run ID, assistant, supplied model and reasoning effort, and generation and evaluation durations |
 | `predictions.jsonl` | Generated patches in SWE-bench prediction format |
-| `<instance-id>/` | Repository checkout, issue, prompt, metadata, `codex.log` or `copilot.log`, and `model.patch` when generated |
+| `<instance-id>/` | Repository checkout, issue, prompt, metadata, readable `codex.log` or `copilot.log`, raw `codex.jsonl` or `copilot.jsonl`, and `model.patch` when generated |
 | `evaluation.log` | SWE-bench command output when evaluation runs |
+
+Both Codex and Copilot output JSONL event streams. Their event schemas and token usage
+fields are provider-specific. The raw per-issue files preserve the original stdout
+stream for later processing, including partial output from failed assistant runs.
 
 In run metadata, a `null` model or reasoning effort means no override was supplied; it does not identify the effective CLI default. The harness writes test results under `logs/evaluation/<run-id>/` inside the SWE-bench checkout. Check its `results.json` for the evaluation outcome. The driver can evaluate the patches it generated even if some issues failed during generation. It returns a nonzero exit code if any selected issue fails to produce a patch or if the evaluation command fails.

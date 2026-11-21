@@ -94,6 +94,31 @@ def selected(output):
     return line.split(": ", 1)[1].split(", ")
 
 
+def test_command_saves_raw_jsonl_and_readable_log(tmp_path, monkeypatch):
+    raw_jsonl = (
+        '{"type":"item.completed","item":{"type":"agent_message","text":"Fixed the issue."}}\n'
+        '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":4}}\n'
+    )
+    monkeypatch.setattr(
+        driver.subprocess, "run",
+        lambda args, **kwargs: subprocess.CompletedProcess(
+            args, 3, stdout=raw_jsonl, stderr="provider diagnostic\n"),
+    )
+    raw_path = tmp_path / "codex.jsonl"
+    readable_path = tmp_path / "codex.log"
+
+    result = driver.command(["codex", "exec", "--json"], stdin="exact prompt",
+                            log=readable_path, json_log=raw_path, check=False)
+
+    assert result.returncode == 3
+    assert result.stdout == raw_jsonl + "provider diagnostic\n"
+    assert raw_path.read_text() == raw_jsonl
+    assert "Fixed the issue." in readable_path.read_text()
+    assert "turn.completed" in readable_path.read_text()
+    assert "provider diagnostic" in readable_path.read_text()
+    assert "input_tokens" in raw_path.read_text()
+
+
 def test_default_sample_and_dataset_size(run_driver, rows):
     result, output, _ = run_driver()
     assert result == 0

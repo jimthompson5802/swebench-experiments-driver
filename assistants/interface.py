@@ -10,6 +10,7 @@ from typing import Protocol
 class CommandRunner(Protocol):
     def __call__(self, args: list[str], *, cwd: Path | None = None,
                  stdin: str | None = None, log: Path | None = None,
+                 json_log: Path | None = None,
                  check: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]: ...
 
 
