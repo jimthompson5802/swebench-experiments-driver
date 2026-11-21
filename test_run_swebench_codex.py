@@ -1,87 +1,112 @@
-import io
 import random
 import sys
-import tempfile
 import types
-import unittest
-from contextlib import redirect_stderr, redirect_stdout
-from unittest.mock import patch
+
+import pytest
 
 import run_swebench_codex as driver
 
 
-class SelectionTests(unittest.TestCase):
-    def setUp(self):
-        self.rows = [{"instance_id": f"issue-{i}"} for i in range(10)]
-        self.root = tempfile.TemporaryDirectory()
-        self.addCleanup(self.root.cleanup)
+@pytest.fixture
+def rows():
+    return [{"instance_id": f"issue-{i}"} for i in range(10)]
 
-    def run_driver(self, *args, rows=None):
+
+@pytest.fixture
+def run_driver(rows, tmp_path, monkeypatch, capsys):
+    def run(*args, dataset_rows=None):
         dataset = types.ModuleType("datasets")
-        dataset.load_dataset = lambda name, split: self.rows if rows is None else rows
-        stdout, stderr = io.StringIO(), io.StringIO()
-        argv = ["driver", "--root", self.root.name, "--dry-run", *args]
-        with patch.dict(sys.modules, {"datasets": dataset}), patch.object(sys, "argv", argv):
-            with redirect_stdout(stdout), redirect_stderr(stderr):
-                try:
-                    result = driver.main()
-                except SystemExit as exc:
-                    result = exc.code
-        return result, stdout.getvalue(), stderr.getvalue()
+        dataset.load_dataset = lambda name, split: rows if dataset_rows is None else dataset_rows
+        monkeypatch.setitem(sys.modules, "datasets", dataset)
+        monkeypatch.setattr(sys, "argv", ["driver", "--root", str(tmp_path), "--dry-run", *args])
+        try:
+            result = driver.main()
+        except SystemExit as exc:
+            result = exc.code
+        output = capsys.readouterr()
+        return result, output.out, output.err
 
-    def selected(self, output):
-        line = next(line for line in output.splitlines() if line.startswith("Selected ("))
-        return line.split(": ", 1)[1].split(", ")
-
-    def test_default_sample_and_dataset_size(self):
-        result, output, _ = self.run_driver()
-        self.assertEqual(result, 0)
-        self.assertIn("Dataset: SWE-bench/SWE-bench_Lite (test split, 10 instances)", output)
-        self.assertEqual(self.selected(output), [r["instance_id"] for r in random.Random(0).sample(self.rows, 1)])
-
-    def test_seeded_sample_is_reproducible_and_distinct(self):
-        result, output, _ = self.run_driver("--count", "4", "--seed", "42")
-        self.assertEqual(result, 0)
-        selected = self.selected(output)
-        self.assertEqual(selected, [r["instance_id"] for r in random.Random(42).sample(self.rows, 4)])
-        self.assertEqual(len(set(selected)), 4)
-        self.assertEqual(selected, self.selected(self.run_driver("--count", "4", "--seed", "42")[1]))
-        self.assertNotEqual(selected, self.selected(self.run_driver("--count", "4", "--seed", "43")[1]))
-
-    def test_select_all_and_negative_seed(self):
-        result, output, _ = self.run_driver("--count", "10", "--seed", "-1")
-        self.assertEqual(result, 0)
-        self.assertEqual(set(self.selected(output)), {r["instance_id"] for r in self.rows})
-
-    def test_count_exceeding_dataset_and_empty_dataset(self):
-        for rows, count in ((self.rows, "11"), ([], "1")):
-            with self.subTest(count=count):
-                result, _, error = self.run_driver("--count", count, rows=rows)
-                self.assertEqual(result, 2)
-                self.assertIn(f"dataset contains only {len(rows)}", error)
-
-    def test_invalid_count(self):
-        result, _, error = self.run_driver("--count", "0")
-        self.assertEqual(result, 2)
-        self.assertIn("--count and --workers must be positive", error)
-
-    def test_exact_ids_preserve_order_and_remove_duplicates(self):
-        result, output, _ = self.run_driver("--ids", "issue-2", "issue-1", "issue-2")
-        self.assertEqual(result, 0)
-        self.assertEqual(self.selected(output), ["issue-2", "issue-1"])
-
-    def test_unknown_ids_and_incompatible_options(self):
-        for args, message in (
-            (("--ids", "missing"), "Unknown instance IDs: missing"),
-            (("--ids", "issue-1", "--count", "2"), "Use --ids alone"),
-            (("--ids", "issue-1", "--seed", "1"), "Use --ids alone"),
-            (("--start", "1"), "unrecognized arguments: --start 1"),
-        ):
-            with self.subTest(args=args):
-                result, _, error = self.run_driver(*args)
-                self.assertEqual(result, 2)
-                self.assertIn(message, error)
+    return run
 
 
-if __name__ == "__main__":
-    unittest.main()
+def selected(output):
+    line = next(line for line in output.splitlines() if line.startswith("Selected ("))
+    return line.split(": ", 1)[1].split(", ")
+
+
+def test_default_sample_and_dataset_size(run_driver, rows):
+    result, output, _ = run_driver()
+    assert result == 0
+    assert "Dataset: SWE-bench/SWE-bench_Lite (test split, 10 instances)" in output
+    assert selected(output) == [r["instance_id"] for r in random.Random(0).sample(rows, 1)]
+
+
+def test_seeded_sample_is_reproducible_and_distinct(run_driver, rows):
+    result, output, _ = run_driver("--count", "4", "--seed", "42")
+    assert result == 0
+    sample = selected(output)
+    assert sample == [r["instance_id"] for r in random.Random(42).sample(rows, 4)]
+    assert len(set(sample)) == 4
+    assert sample == selected(run_driver("--count", "4", "--seed", "42")[1])
+    assert sample != selected(run_driver("--count", "4", "--seed", "43")[1])
+
+
+def test_select_all_and_negative_seed(run_driver, rows):
+    result, output, _ = run_driver("--count", "10", "--seed", "-1")
+    assert result == 0
+    assert set(selected(output)) == {r["instance_id"] for r in rows}
+
+
+@pytest.mark.parametrize("seed", ["0", "42", "-1"])
+def test_zero_count_selects_all_in_dataset_order_regardless_of_seed(run_driver, rows, seed):
+    result, output, _ = run_driver("--count", "0", "--seed", seed)
+    assert result == 0
+    assert selected(output) == [r["instance_id"] for r in rows]
+
+
+def test_zero_count_with_empty_dataset(run_driver):
+    result, output, _ = run_driver("--count", "0", dataset_rows=[])
+    assert result == 0
+    assert "Dataset: SWE-bench/SWE-bench_Lite (test split, 0 instances)" in output
+    assert "Selected (0): " in output
+
+
+@pytest.mark.parametrize("empty,count,available", [(False, "11", 10), (True, "1", 0)])
+def test_count_exceeding_dataset_and_empty_dataset(run_driver, empty, count, available):
+    result, _, error = run_driver("--count", count, dataset_rows=[] if empty else None)
+    assert result == 2
+    assert f"dataset contains only {available}" in error
+
+
+def test_invalid_count(run_driver):
+    result, _, error = run_driver("--count", "-1")
+    assert result == 2
+    assert "--count must be nonnegative and --workers must be positive" in error
+
+
+def test_invalid_workers(run_driver):
+    result, _, error = run_driver("--workers", "0")
+    assert result == 2
+    assert "--workers must be positive" in error
+
+
+def test_exact_ids_preserve_order_and_remove_duplicates(run_driver):
+    result, output, _ = run_driver("--ids", "issue-2", "issue-1", "issue-2")
+    assert result == 0
+    assert selected(output) == ["issue-2", "issue-1"]
+
+
+@pytest.mark.parametrize(
+    "args,message",
+    [
+        (("--ids", "missing"), "Unknown instance IDs: missing"),
+        (("--ids", "issue-1", "--count", "2"), "Use --ids alone"),
+        (("--ids", "issue-1", "--count", "0"), "Use --ids alone"),
+        (("--ids", "issue-1", "--seed", "1"), "Use --ids alone"),
+        (("--start", "1"), "unrecognized arguments: --start 1"),
+    ],
+)
+def test_unknown_ids_and_incompatible_options(run_driver, args, message):
+    result, _, error = run_driver(*args)
+    assert result == 2
+    assert message in error

@@ -9,7 +9,17 @@ description: Run and evaluate Codex CLI on SWE-bench Lite issues.
 
 Install Python 3.10 or later, Git, and an authenticated Codex CLI. Install Docker and start it before running the benchmark. See the [SWE-bench Docker setup guide](https://www.swebench.com/SWE-bench/guides/docker_setup/).
 
-From the directory containing this README, set `SWEBENCH_EXPERIMENTS_DIR` to an absolute path of your choice. The setup below puts the checkouts and virtual environment there and installs the SWE-bench CLI and Python `datasets` package. If you already have the checkouts elsewhere, skip cloning them, install from your existing SWE-bench checkout, and pass their locations with `--swebench-dir` and `--task-repo` when running the driver.
+From the driver directory, create and activate a local virtual environment, then install the packages captured from the workspace environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+The requirements file captures the test environment, including pytest. The driver also needs the `datasets` package and the SWE-bench CLI, which are installed separately below.
+
+Set `SWEBENCH_EXPERIMENTS_DIR` to an absolute path of your choice for the checkouts and run artifacts. If you already have the checkouts elsewhere, skip cloning them, install from your existing SWE-bench checkout, and pass their locations with `--swebench-dir` and `--task-repo` when running the driver.
 
 ```bash
 SWEBENCH_EXPERIMENTS_DIR="/path/to/swebench-experiments"
@@ -17,9 +27,7 @@ mkdir -p "$SWEBENCH_EXPERIMENTS_DIR"
 git clone https://github.com/SWE-bench/SWE-bench.git "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench"
 git clone --depth 1 https://github.com/SWE-bench/swe-bench-tasks.git "$SWEBENCH_EXPERIMENTS_DIR/swe-bench-tasks"
 
-python3 -m venv "$SWEBENCH_EXPERIMENTS_DIR/.venv"
-source "$SWEBENCH_EXPERIMENTS_DIR/.venv/bin/activate"
-python -m pip install -e "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench"
+python -m pip install datasets -e "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench"
 
 codex --version
 docker info
@@ -30,7 +38,7 @@ See the [SWE-bench quickstart](https://www.swebench.com/SWE-bench/guides/quickst
 
 ## Run the driver
 
-Run these examples from the driver directory with the virtual environment active. In a new shell, set `SWEBENCH_EXPERIMENTS_DIR` again and reactivate the virtual environment. The `--root` argument tells the driver where to look for both checkouts and where to write run artifacts.
+Run these examples from the driver directory with the virtual environment active. In a new shell, set `SWEBENCH_EXPERIMENTS_DIR` again and reactivate the virtual environment with `source .venv/bin/activate`. The `--root` argument tells the driver where to look for both checkouts and where to write run artifacts.
 
 Preview a randomly selected issue. This loads the dataset and prints the test-split size and selection without cloning a task workspace, calling Codex, or running Docker.
 
@@ -44,7 +52,7 @@ Generate and evaluate a patch for the selected issue. The driver handles one iss
 python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" --run-id first-run
 ```
 
-To select a random batch without replacement, set the number of issues with `--count` and optionally set the random seed with `--seed`. The default seed is `0`. The same seed and count reproduce the selection when dataset contents and ordering and Python sampling behavior are unchanged. Alternatively, pass one or more exact instance IDs with `--ids`. Use `--skip-eval` to generate patches and predictions only. The driver still checks for both checkouts and all required executables in this mode.
+To select a random batch without replacement, set the number of issues with `--count` and optionally set the random seed with `--seed`. The default seed is `0`. The same seed and count reproduce the selection when dataset contents and ordering and Python sampling behavior are unchanged. Set `--count 0` to select all issues in dataset order; the seed has no effect in this mode. Alternatively, pass one or more exact instance IDs with `--ids`. Use `--skip-eval` to generate patches and predictions only. The driver still checks for both checkouts and all required executables in this mode.
 
 ```bash
 python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
@@ -58,8 +66,8 @@ python run_swebench_codex.py --help
 
 | Argument | Default | Behavior |
 | --- | --- | --- |
-| `--count N` | `1` | Randomly selects `N` distinct issues. Must be positive and no greater than the test-split size. |
-| `--seed N` | `0` | Sets the integer seed for reproducible random sampling. |
+| `--count N` | `1` | Randomly selects `N` distinct issues, or selects all in dataset order when `N` is `0`. Must be nonnegative and no greater than the test-split size. |
+| `--seed N` | `0` | Sets the integer seed for reproducible random sampling. Ignored when `--count` is `0`. |
 | `--ids ID [ID ...]` | Select by count and seed | Selects exact instance IDs in the order given, omitting duplicates. Unknown IDs cause an error. Use this in place of `--seed` and `--count`. |
 | `--root PATH` | `~/swebench-experiments` | Sets the output directory's parent and the base path for both checkouts. Pass the directory chosen during setup. |
 | `--swebench-dir PATH` | `<root>/SWE-bench` | Points to the installed SWE-bench checkout. The driver runs evaluation from this directory. |
@@ -73,6 +81,16 @@ python run_swebench_codex.py --help
 | `--overwrite` | Off | Allows reuse of a nonempty run directory and deletes and recreates the existing directories for the selected issues. |
 | `--allow-network` | Off | Enables network access inside the Codex workspace-write sandbox. The driver's own dataset download and Git clones run separately. |
 | `-h`, `--help` | Off | Prints the available arguments and exits. |
+
+## Run tests
+
+With the virtual environment active and the requirements installed, run the tests from the driver directory:
+
+```bash
+python -m pytest -v
+```
+
+The tests use a stub dataset and do not require dataset downloads, Codex, or Docker.
 
 ## Find results
 
