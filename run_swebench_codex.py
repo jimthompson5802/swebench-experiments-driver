@@ -38,7 +38,7 @@ def command(args: list[str], *, cwd: Path | None = None, stdin: str | None = Non
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--count", type=int, default=1, help="Number of random dataset instances to attempt")
+    p.add_argument("--count", type=int, default=1, help="Number of random instances to attempt; 0 selects all in dataset order")
     p.add_argument("--seed", type=int, default=0, help="Random seed for dataset sampling")
     p.add_argument("--ids", nargs="+", help="Exact SWE-bench instance IDs, instead of --count/--seed")
     p.add_argument("--root", type=Path, default=Path.home() / "swebench-experiments")
@@ -74,8 +74,8 @@ Instructions:
 
 def main() -> int:
     a = parser().parse_args()
-    if a.count < 1 or a.workers < 1:
-        parser().error("--count and --workers must be positive")
+    if a.count < 0 or a.workers < 1:
+        parser().error("--count must be nonnegative and --workers must be positive")
     if a.ids and (a.count != 1 or a.seed != 0):
         parser().error("Use --ids alone, not with --count or --seed")
     from datasets import load_dataset
@@ -87,6 +87,8 @@ def main() -> int:
         if missing:
             parser().error("Unknown instance IDs: " + ", ".join(missing))
         chosen = [by_id[i] for i in dict.fromkeys(a.ids)]
+    elif a.count == 0:
+        chosen = rows
     else:
         if a.count > len(rows):
             parser().error(f"Requested {a.count} instances, but the dataset contains only {len(rows)}")
