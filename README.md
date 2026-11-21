@@ -1,0 +1,85 @@
+# SWE-bench Experiments Driver
+
+`run_swebench_codex.py` runs Codex CLI on issues from the SWE-bench Lite test split. It checks out each issue's base commit, saves Codex's changes as a patch, and evaluates the generated patches with the SWE-bench Docker harness.
+
+## Setup
+
+Install Python 3.10 or later, Git, and an authenticated Codex CLI. Install Docker and start it before running the benchmark. See the [SWE-bench Docker setup guide](https://www.swebench.com/SWE-bench/guides/docker_setup/).
+
+From the directory containing this README, set `SWEBENCH_EXPERIMENTS_DIR` to an absolute path of your choice. The setup below puts the checkouts and virtual environment there and installs the SWE-bench CLI and Python `datasets` package. If you already have the checkouts elsewhere, skip cloning them, install from your existing SWE-bench checkout, and pass their locations with `--swebench-dir` and `--task-repo` when running the driver.
+
+```bash
+SWEBENCH_EXPERIMENTS_DIR="/path/to/swebench-experiments"
+mkdir -p "$SWEBENCH_EXPERIMENTS_DIR"
+git clone https://github.com/SWE-bench/SWE-bench.git "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench"
+git clone --depth 1 https://github.com/SWE-bench/swe-bench-tasks.git "$SWEBENCH_EXPERIMENTS_DIR/swe-bench-tasks"
+
+python3 -m venv "$SWEBENCH_EXPERIMENTS_DIR/.venv"
+source "$SWEBENCH_EXPERIMENTS_DIR/.venv/bin/activate"
+python -m pip install -e "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench"
+
+codex --version
+docker info
+swebench eval --help
+```
+
+See the [SWE-bench quickstart](https://www.swebench.com/SWE-bench/guides/quickstart/) and [CLI reference](https://www.swebench.com/SWE-bench/reference/cli/).
+
+## Run the driver
+
+Run these examples from the driver directory with the virtual environment active. In a new shell, set `SWEBENCH_EXPERIMENTS_DIR` again and reactivate the virtual environment. The `--root` argument tells the driver where to look for both checkouts and where to write run artifacts.
+
+Preview the first issue. This loads the dataset and prints the selection without cloning a task workspace, calling Codex, or running Docker.
+
+```bash
+python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" --dry-run
+```
+
+Generate and evaluate a patch for the first issue. The driver handles one issue and uses one evaluation worker by default.
+
+```bash
+python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" --run-id first-run
+```
+
+To select a batch, set the zero-based offset with `--start` and the number of issues with `--count`. Alternatively, pass one or more exact instance IDs with `--ids`. Use `--skip-eval` to generate patches and predictions only. The driver still checks for both checkouts and all required executables in this mode.
+
+```bash
+python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
+  --start 10 --count 3 --workers 2 --run-id batch-10
+python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
+  --ids sympy__sympy-20590 --skip-eval --run-id sympy-patch
+python run_swebench_codex.py --help
+```
+
+## Command-line arguments
+
+| Argument | Default | Behavior |
+| --- | --- | --- |
+| `--count N` | `1` | Selects `N` issues. Must be positive. The run stops if fewer than `N` issues remain at the selected offset. |
+| `--start N` | `0` | Sets the zero-based offset into the SWE-bench Lite test split. Must be nonnegative. |
+| `--ids ID [ID ...]` | Select by offset and count | Selects exact instance IDs in the order given. Unknown IDs cause an error. Use this in place of `--start` and `--count`. |
+| `--root PATH` | `~/swebench-experiments` | Sets the output directory's parent and the base path for both checkouts. Pass the directory chosen during setup. |
+| `--swebench-dir PATH` | `<root>/SWE-bench` | Points to the installed SWE-bench checkout. The driver runs evaluation from this directory. |
+| `--task-repo PATH` | `<root>/swe-bench-tasks` | Points to the SWE-bench task repository used by the evaluator. |
+| `--run-id ID` | `codex-lite-YYYYMMDD-HHMMSS` (UTC) | Names the run directory and the evaluation run. Use letters, digits, dots, underscores, or hyphens. |
+| `--workers N` | `1` | Sets the number of parallel evaluation workers. Must be positive. |
+| `--model NAME` | Codex CLI default | Selects the model used for patch generation. |
+| `--reasoning-effort LEVEL` | Codex CLI default | Sets Codex reasoning effort to `minimal`, `low`, `medium`, `high`, or `xhigh`. |
+| `--skip-eval` | Off | Generates patches and predictions, then skips evaluation. The driver still checks for both checkouts and all required executables. |
+| `--dry-run` | Off | Loads the dataset and prints the run ID and selected issues before checking prerequisites or creating workspaces. |
+| `--overwrite` | Off | Allows reuse of a nonempty run directory and deletes and recreates the existing directories for the selected issues. |
+| `--allow-network` | Off | Enables network access inside the Codex workspace-write sandbox. The driver's own dataset download and Git clones run separately. |
+| `-h`, `--help` | Off | Prints the available arguments and exits. |
+
+## Find results
+
+Each run writes to `$SWEBENCH_EXPERIMENTS_DIR/runs/<run-id>/` when you pass `--root` as shown above. When you omit `--run-id`, the driver generates a timestamped ID. Use a fresh ID to get a fresh evaluation. SWE-bench can reuse cached results when you repeat an ID, even if you regenerate patches with `--overwrite`. [SWE-bench CLI reference](https://www.swebench.com/SWE-bench/reference/cli/#swebench-eval-dataset)
+
+| Path relative to the run directory | Contents |
+| --- | --- |
+| `generation_status.json` | Per-issue patch generation status and any errors |
+| `predictions.jsonl` | Generated patches in SWE-bench prediction format |
+| `<instance-id>/` | Repository checkout, issue, prompt, metadata, `codex.log`, and `model.patch` when generated |
+| `evaluation.log` | SWE-bench command output when evaluation runs |
+
+The harness writes test results under `logs/evaluation/<run-id>/` inside the SWE-bench checkout. Check its `results.json` for the evaluation outcome. The driver can evaluate the patches it generated even if some issues failed during generation. It returns a nonzero exit code if any selected issue fails to produce a patch or if the evaluation command fails.
