@@ -7,11 +7,23 @@ description: Run and evaluate coding assistants on SWE-bench Lite issues.
 
 ## Setup
 
-Install Python 3.10 or later, Git, and the authenticated CLI for the assistant you select. Install Docker and start it before running the benchmark. See the [SWE-bench Docker setup guide](https://www.swebench.com/SWE-bench/guides/docker_setup/) and the [GitHub Copilot CLI setup guide](https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-getting-started).
+Install Python 3.10 or later, Git, Docker, and the authenticated CLI for the assistant you select. Docker must be installed and running because the SWE-bench evaluator executes test environments in containers. See the [SWE-bench Docker setup guide](https://www.swebench.com/SWE-bench/guides/docker_setup/) and the [GitHub Copilot CLI setup guide](https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-getting-started).
+
+The driver retrieves the SWE-bench Lite test dataset from Hugging Face. Create a Hugging Face access token with read access to gated repositories, then set it in each shell where you run the driver:
+
+```bash
+export HF_TOKEN="hf_your_access_token"
+```
+
+Do not commit the token or add it to repository configuration. Replace `hf_your_access_token` with a token created in the Hugging Face account that has accepted the required SWE-bench dataset terms.
 
 From the driver directory, create and activate a local virtual environment, then install the packages captured from the workspace environment:
 
 ```bash
+git clone https://github.com/jimthompson5802/swebench-experiments-driver.git
+
+cd swebench-experiments-driver
+
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
@@ -19,7 +31,7 @@ python -m pip install -r requirements.txt
 
 The requirements file captures the test environment, including pytest. The driver also needs the `datasets` package and the SWE-bench CLI, which are installed separately below.
 
-Set `SWEBENCH_EXPERIMENTS_DIR` to an absolute path of your choice for the checkouts and run artifacts. If you already have the checkouts elsewhere, skip cloning them, install from your existing SWE-bench checkout, and pass their locations with `--swebench-dir` and `--task-repo` when running the driver.
+Set `SWEBENCH_EXPERIMENTS_DIR` to an absolute path of your choice for the checkouts and run artifacts. If you already have the checkouts elsewhere, pass their locations with `--swebench-dir` and `--task-repo` when running the driver.
 
 ```bash
 SWEBENCH_EXPERIMENTS_DIR="/path/to/swebench-experiments"
@@ -27,12 +39,16 @@ mkdir -p "$SWEBENCH_EXPERIMENTS_DIR"
 git clone https://github.com/SWE-bench/SWE-bench.git "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench"
 git clone --depth 1 https://github.com/SWE-bench/swe-bench-tasks.git "$SWEBENCH_EXPERIMENTS_DIR/swe-bench-tasks"
 
-python -m pip install datasets -e "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench"
+cd "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench"
+uv venv
+source .venv/bin/activate
+uv pip install -e .
+uv pip install datasets
 
-codex --version
-docker info
 swebench eval --help
 ```
+
+Install SWE-bench and `datasets` in the environment used to run its CLI, and install `datasets` in the driver environment because `run_swebench.py` loads the dataset directly.
 
 See the [SWE-bench quickstart](https://www.swebench.com/SWE-bench/guides/quickstart/) and [CLI reference](https://www.swebench.com/SWE-bench/reference/cli/).
 
@@ -43,7 +59,11 @@ For Copilot runs, install and authenticate GitHub Copilot CLI separately. The in
 
 ## Run the driver
 
-Run these examples from the driver directory with the virtual environment active. In a new shell, set `SWEBENCH_EXPERIMENTS_DIR` again and reactivate the virtual environment with `source .venv/bin/activate`. The `--root` argument tells the driver where to look for both checkouts and where to write run artifacts.
+Run these examples from the driver directory with the virtual environment active from `$SWEBENCH_EXPERIMENT_DIR/SWE-bench/.venv`. In a new shell, set `SWEBENCH_EXPERIMENTS_DIR` again and reactivate the virtual environment with `source $SWEBENCH_EXPERIMENTS_DIR/SWE-bench/.venv/bin/activate`. The `--root` argument tells the driver where to look for both checkouts and where to write run artifacts.
+
+```bash
+source $SWEBENCH_EXPERIMENTS_DIR/SWE-bench/.venv/bin/activate
+```
 
 Preview a randomly selected issue. This loads the dataset and prints the test-split size and selection without cloning a task workspace, calling Codex, or running Docker.
 
@@ -68,9 +88,16 @@ To select a random batch without replacement, set the number of issues with `--c
 
 ```bash
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
-  --seed 10 --count 3 --generation-workers 2 --evaluation-workers 2 --run-id batch-10
+  --assistant codex --run-id codex-10 \
+  --seed 42 --count 10 --generation-workers 4 --evaluation-workers 4
+
+python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
+  --assistant copilot --run-id copilot-10 \
+  --seed 42 --count 10 --generation-workers 4 --evaluation-workers 4 
+
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --ids sympy__sympy-20590 --skip-eval --run-id sympy-patch
+
 python run_swebench.py --help
 ```
 
