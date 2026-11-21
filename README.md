@@ -88,11 +88,11 @@ To select a random batch without replacement, set the number of issues with `--c
 
 ```bash
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
-  --assistant codex --run-id codex-10 \
+  --assistant codex --run-id codex-10 --model gpt-6.2-sol --reasoning-effort medium \
   --seed 42 --count 10 --generation-workers 4 --evaluation-workers 4
 
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
-  --assistant copilot --run-id copilot-10 \
+  --assistant copilot --run-id copilot-10 --model gpt-6.1-terra --reasoning-effort medium \
   --seed 42 --count 10 --generation-workers 4 --evaluation-workers 4 
 
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
