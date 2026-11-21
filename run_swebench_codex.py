@@ -14,6 +14,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -126,6 +127,7 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
     predictions = []
     statuses = []
+    generation_started = time.perf_counter()
     # Isolate each benchmark instance so failures do not prevent later issues from running.
     for index, issue in enumerate(chosen, 1):
         iid = issue["instance_id"]
@@ -176,6 +178,7 @@ def main() -> int:
             print(f"  FAILED: {e}", file=sys.stderr, flush=True)
             statuses.append({"instance_id": iid, "status": "generation_failed", "error": str(e)})
         (run_dir / "generation_status.json").write_text(json.dumps(statuses, indent=2) + "\n")
+    generation_duration = time.perf_counter() - generation_started
 
     # SWE-bench consumes one JSON object per line, including only successfully generated patches.
     pred_path = run_dir / "predictions.jsonl"
@@ -183,23 +186,40 @@ def main() -> int:
         for prediction in predictions:
             f.write(json.dumps(prediction) + "\n")
     print(f"\nGenerated {len(predictions)}/{len(chosen)} patches: {pred_path}")
+    evaluation_duration = None
+    exit_code = 1
     if not predictions:
         print("No patches to evaluate.", file=sys.stderr)
-        return 1
-    if a.skip_eval:
+    elif a.skip_eval:
         print("Evaluation skipped (--skip-eval).")
-        return 0 if len(predictions) == len(chosen) else 1
+        exit_code = 0 if len(predictions) == len(chosen) else 1
+    else:
+        # Run evaluation from SWE-bench checkout; preserve its standard log directory.
+        eval_cmd = ["swebench", "eval", "lite", "-p", str(pred_path),
+                    "--run-id", run_id, "--task-repo", str(task_repo),
+                    "-j", str(a.workers)]
+        evaluation_started = time.perf_counter()
+        result = command(eval_cmd, cwd=sb_dir, log=run_dir / "evaluation.log", check=False)
+        evaluation_duration = time.perf_counter() - evaluation_started
+        print(f"Evaluation logs: {sb_dir / 'logs' / 'evaluation' / run_id}")
+        print(f"Evaluation command exit code: {result.returncode}")
+        if result.returncode:
+            print(f"See {run_dir / 'evaluation.log'}", file=sys.stderr)
+        exit_code = 0 if result.returncode == 0 and len(predictions) == len(chosen) else 1
 
-    # Run evaluation from SWE-bench checkout; preserve its standard log directory.
-    eval_cmd = ["swebench", "eval", "lite", "-p", str(pred_path),
-                "--run-id", run_id, "--task-repo", str(task_repo),
-                "-j", str(a.workers)]
-    result = command(eval_cmd, cwd=sb_dir, log=run_dir / "evaluation.log", check=False)
-    print(f"Evaluation logs: {sb_dir / 'logs' / 'evaluation' / run_id}")
-    print(f"Evaluation command exit code: {result.returncode}")
-    if result.returncode:
-        print(f"See {run_dir / 'evaluation.log'}", file=sys.stderr)
-    return 0 if result.returncode == 0 and len(predictions) == len(chosen) else 1
+    run_metadata = {
+        "run_id": run_id,
+        "generation_duration_seconds": generation_duration,
+        "evaluation_duration_seconds": evaluation_duration,
+    }
+    (run_dir / "run_metadata.json").write_text(json.dumps(run_metadata, indent=2) + "\n")
+    print(f"Generation duration: {generation_duration:.2f} seconds")
+    if evaluation_duration is None:
+        print("SWE-bench evaluation duration: not run")
+    else:
+        print(f"SWE-bench evaluation duration: {evaluation_duration:.2f} seconds")
+    print(f"Run metadata: {run_dir / 'run_metadata.json'}")
+    return exit_code
 
 
 if __name__ == "__main__":
