@@ -14,6 +14,7 @@ import shlex
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -103,7 +104,10 @@ def parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     p.add_argument("--swebench-dir", type=Path, help="Directory of installed SWE-bench checkout")
     p.add_argument("--task-repo", type=Path, help="Directory of swe-bench-tasks checkout")
     p.add_argument("--run-id", help="Unique run ID; auto-generated when omitted")
-    p.add_argument("--workers", type=int, default=1, help="SWE-bench evaluation workers")
+    p.add_argument("--generation-workers", type=int, default=1,
+                   help="Number of patch-generation instances to run in parallel")
+    p.add_argument("--evaluation-workers", "--workers", dest="evaluation_workers", type=int, default=1,
+                   help="SWE-bench evaluation workers (deprecated alias: --workers)")
     ASSISTANTS[selected.assistant].add_arguments(p)
     p.add_argument("--skip-eval", action="store_true", help="Generate patches and predictions only")
     p.add_argument("--dry-run", action="store_true", help="Print selected issues without cloning or running an assistant")
@@ -127,12 +131,65 @@ Instructions:
 """
 
 
+def generate_instance(index: int, issue: dict, total: int, run_dir: Path,
+                      assistant: AssistantFactory, overwrite: bool,
+                      on_progress=None) -> tuple[dict | None, dict]:
+    iid = issue["instance_id"]
+    idir = run_dir / iid
+    workspace = idir / "repo"
+    if on_progress:
+        on_progress(iid)
+    try:
+        if idir.exists() and overwrite:
+            import shutil
+            shutil.rmtree(idir)
+        idir.mkdir(parents=True, exist_ok=True)
+        (idir / "issue.txt").write_text(issue["problem_statement"])
+        (idir / "metadata.json").write_text(json.dumps({
+            "instance_id": iid,
+            "repo": issue["repo"],
+            "base_commit": issue["base_commit"],
+        }, indent=2) + "\n")
+        prompt = make_prompt(issue["problem_statement"])
+        (idir / "prompt.txt").write_text(prompt)
+
+        command(["git", "clone", "--quiet", f"https://github.com/{issue['repo']}.git", str(workspace)])
+        command(["git", "checkout", "--detach", issue["base_commit"]], cwd=workspace)
+        actual = command(["git", "rev-parse", "HEAD"], cwd=workspace).stdout.strip()
+        if actual != issue["base_commit"]:
+            raise RuntimeError(f"Wrong checkout: {actual}")
+
+        assistant.run(workspace, prompt, idir, command)
+
+        untracked = command(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=workspace).stdout
+        files = [item for item in untracked.split("\0") if item]
+        if files:
+            command(["git", "add", "-N", "--", *files], cwd=workspace)
+        command(["git", "diff", "--check", "HEAD"], cwd=workspace)
+        patch = command(["git", "diff", "--binary", "HEAD"], cwd=workspace).stdout
+        (idir / "model.patch").write_text(patch)
+        if not patch.strip():
+            raise RuntimeError(f"{assistant.display_name} produced no patch")
+
+        return ({
+            "instance_id": iid,
+            "model_name_or_path": assistant.prediction_name,
+            "model_patch": patch,
+        }, {"instance_id": iid, "status": "patch_generated", "patch_bytes": len(patch.encode())})
+    except Exception as exc:
+        return None, {"instance_id": iid, "status": "generation_failed", "error": str(exc)}
+
+
 def main() -> int:
     p = parser()
     a = p.parse_args()
     assistant = ASSISTANTS[a.assistant](a)
-    if a.count < 0 or a.workers < 1:
-        p.error("--count must be nonnegative and --workers must be positive")
+    if a.count < 0:
+        p.error("--count must be nonnegative")
+    if a.generation_workers < 1:
+        p.error("--generation-workers must be positive")
+    if a.evaluation_workers < 1:
+        p.error("--evaluation-workers must be positive")
     if a.ids and (a.count != 1 or a.seed != 0):
         p.error("Use --ids alone, not with --count or --seed")
     from datasets import load_dataset
@@ -177,56 +234,43 @@ def main() -> int:
     for exe in ("git", assistant.executable, "swebench", "docker"):
         import shutil
         if shutil.which(exe) is None:
-                        p.error(f"Executable not found on PATH: {exe}")
+            p.error(f"Executable not found on PATH: {exe}")
 
-        if assistant.name == "copilot":
-                print("WARNING: Copilot sandbox and network restrictions depend on the host and CLI configuration; "
-                            "network isolation and Codex-equivalent protections are not guaranteed.", file=sys.stderr, flush=True)
+    if assistant.name == "copilot":
+        print("WARNING: Copilot sandbox and network restrictions depend on the host and CLI configuration; "
+              "network isolation and Codex-equivalent protections are not guaranteed.",
+              file=sys.stderr, flush=True)
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    predictions = []
-    statuses = []
+    predictions_by_index = {}
+    statuses_by_index = {}
     generation_started = time.perf_counter()
-    # Isolate each benchmark instance so failures do not prevent later issues from running.
-    for index, issue in enumerate(chosen, 1):
-        iid = issue["instance_id"]
-        print(f"\n[{index}/{len(chosen)}] {iid}", flush=True)
-        idir = run_dir / iid
-        workspace = idir / "repo"
-        try:
-            if idir.exists() and a.overwrite:
-                import shutil
-                shutil.rmtree(idir)
-            idir.mkdir(parents=True, exist_ok=True)
-            # Keep only public issue details; do not write reference or test patches.
-            (idir / "issue.txt").write_text(issue["problem_statement"])
-            (idir / "metadata.json").write_text(json.dumps({
-                "instance_id": iid, "repo": issue["repo"],
-                "base_commit": issue["base_commit"]}, indent=2) + "\n")
-            prompt = make_prompt(issue["problem_statement"])
-            (idir / "prompt.txt").write_text(prompt)
-            command(["git", "clone", "--quiet", f"https://github.com/{issue['repo']}.git", str(workspace)])
-            command(["git", "checkout", "--detach", issue["base_commit"]], cwd=workspace)
-            actual = command(["git", "rev-parse", "HEAD"], cwd=workspace).stdout.strip()
-            if actual != issue["base_commit"]:
-                raise RuntimeError(f"Wrong checkout: {actual}")
-            assistant.run(workspace, prompt, idir, command)
-            # git add -N makes untracked source files visible to git diff without staging contents.
-            untracked = command(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=workspace).stdout
-            files = [x for x in untracked.split("\0") if x]
-            if files:
-                command(["git", "add", "-N", "--", *files], cwd=workspace)
-            command(["git", "diff", "--check", "HEAD"], cwd=workspace)
-            patch = command(["git", "diff", "--binary", "HEAD"], cwd=workspace).stdout
-            (idir / "model.patch").write_text(patch)
-            if not patch.strip():
-                raise RuntimeError(f"{assistant.display_name} produced no patch")
-            predictions.append({"instance_id": iid, "model_name_or_path": assistant.prediction_name, "model_patch": patch})
-            statuses.append({"instance_id": iid, "status": "patch_generated", "patch_bytes": len(patch.encode())})
-        except Exception as e:
-            print(f"  FAILED: {e}", file=sys.stderr, flush=True)
-            statuses.append({"instance_id": iid, "status": "generation_failed", "error": str(e)})
-        (run_dir / "generation_status.json").write_text(json.dumps(statuses, indent=2) + "\n")
+
+    with ThreadPoolExecutor(max_workers=a.generation_workers) as executor:
+        future_to_index = {
+            executor.submit(generate_instance, index, issue, len(chosen), run_dir,
+                            assistant, a.overwrite): index
+            for index, issue in enumerate(chosen, 1)
+        }
+        for future in as_completed(future_to_index):
+            index = future_to_index[future]
+            iid = chosen[index - 1]["instance_id"]
+            print(f"\n[{index}/{len(chosen)}] {iid}", flush=True)
+            try:
+                prediction, status = future.result()
+            except Exception as exc:
+                print(f"  FAILED: {exc}", file=sys.stderr, flush=True)
+                prediction = None
+                status = {"instance_id": iid, "status": "generation_failed", "error": str(exc)}
+            if prediction is not None:
+                predictions_by_index[index] = prediction
+            statuses_by_index[index] = status
+            if status["status"] == "generation_failed":
+                print(f"  FAILED: {status['error']}", file=sys.stderr, flush=True)
+
+    predictions = [predictions_by_index[index] for index in sorted(predictions_by_index)]
+    statuses = [statuses_by_index[index] for index in sorted(statuses_by_index)]
+    (run_dir / "generation_status.json").write_text(json.dumps(statuses, indent=2) + "\n")
     generation_duration = time.perf_counter() - generation_started
 
     # SWE-bench consumes one JSON object per line, including only successfully generated patches.
@@ -246,7 +290,7 @@ def main() -> int:
         # Run evaluation from SWE-bench checkout; preserve its standard log directory.
         eval_cmd = ["swebench", "eval", "lite", "-p", str(pred_path),
                     "--run-id", run_id, "--task-repo", str(task_repo),
-                    "-j", str(a.workers)]
+                    "-j", str(a.evaluation_workers)]
         evaluation_started = time.perf_counter()
         try:
             result = command(eval_cmd, cwd=sb_dir, log=run_dir / "evaluation.log", check=False)

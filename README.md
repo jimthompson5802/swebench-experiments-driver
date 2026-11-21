@@ -51,7 +51,7 @@ Preview a randomly selected issue. This loads the dataset and prints the test-sp
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" --dry-run
 ```
 
-Generate and evaluate a patch for the selected issue. The driver handles one issue and uses one evaluation worker by default.
+Generate and evaluate a patch for the selected issue. The driver handles patch generation sequentially and uses one evaluation worker by default.
 
 ```bash
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" --run-id first-run
@@ -68,7 +68,7 @@ To select a random batch without replacement, set the number of issues with `--c
 
 ```bash
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
-  --seed 10 --count 3 --workers 2 --run-id batch-10
+  --seed 10 --count 3 --generation-workers 2 --evaluation-workers 2 --run-id batch-10
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --ids sympy__sympy-20590 --skip-eval --run-id sympy-patch
 python run_swebench.py --help
@@ -86,7 +86,9 @@ python run_swebench.py --help
 | `--swebench-dir PATH` | `<root>/SWE-bench` | Points to the installed SWE-bench checkout. The driver runs evaluation from this directory. |
 | `--task-repo PATH` | `<root>/swe-bench-tasks` | Points to the SWE-bench task repository used by the evaluator. |
 | `--run-id ID` | `<assistant>-lite-YYYYMMDD-HHMMSS` (UTC) | Names the run directory and the evaluation run. Use letters, digits, dots, underscores, or hyphens. |
-| `--workers N` | `1` | Sets the number of parallel evaluation workers. Must be positive. |
+| `--generation-workers N` | `1` | Sets the number of patch-generation instances to run in parallel. Must be positive. |
+| `--evaluation-workers N` | `1` | Sets the number of parallel SWE-bench evaluation workers. Must be positive. |
+| `--workers N` | `1` | Deprecated compatibility alias for `--evaluation-workers`. |
 | `--model NAME` | Selected CLI default | Selects the model used for patch generation. Supported names depend on the assistant and account. |
 | `--reasoning-effort LEVEL` | Selected CLI default | Codex accepts `minimal`, `low`, `medium`, `high`, and `xhigh`. Copilot accepts `low`, `medium`, `high`, `xhigh`, and `max`; availability can depend on the model. |
 | `--skip-eval` | Off | Generates patches and predictions, then skips evaluation. The driver still checks for both checkouts and all required executables. |
