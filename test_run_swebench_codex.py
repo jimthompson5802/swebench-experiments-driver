@@ -50,25 +50,30 @@ def run_actual(tmp_path, monkeypatch, capsys):
     # Keep elapsed durations deterministic while avoiding wall-clock delays in tests.
     monkeypatch.setattr(driver.time, "perf_counter", iter([100.0, 102.5, 200.0, 205.0]).__next__)
 
-    def run(*, generate_patch=True, eval_returncode=0, skip_eval=False):
+    def run(*, generate_patch=True, eval_returncode=0, skip_eval=False, extra_args=(),
+            assistant_returncode=0, empty_patch=False, eval_raises=False):
         argv = [
             "driver", "--root", str(tmp_path), "--run-id", "test-run",
             "--swebench-dir", str(sb_dir), "--task-repo", str(task_repo), "--ids", "issue-0",
         ]
         if skip_eval:
             argv.append("--skip-eval")
+        argv.extend(extra_args)
         monkeypatch.setattr(sys, "argv", argv)
 
         def fake_command(args, **kwargs):
+            if args[0] == "swebench" and eval_raises:
+                raise OSError("cannot launch evaluator")
             if args[0] == "git" and args[1] == "clone" and not generate_patch:
                 raise RuntimeError("simulated generation failure")
             if args[0] == "git" and args[1:3] == ["rev-parse", "HEAD"]:
                 stdout = "abc123\n"
             elif args[0] == "git" and args[1:3] == ["diff", "--binary"]:
-                stdout = "diff --git a/file.py b/file.py\n"
+                stdout = "" if empty_patch else "diff --git a/file.py b/file.py\n"
             else:
                 stdout = ""
-            returncode = eval_returncode if args[0] == "swebench" else 0
+            returncode = (eval_returncode if args[0] == "swebench" else
+                          assistant_returncode if args[0] in ("codex", "copilot") else 0)
             return subprocess.CompletedProcess(args, returncode, stdout=stdout)
 
         monkeypatch.setattr(driver, "command", fake_command)
@@ -173,6 +178,9 @@ def test_actual_run_records_separate_generation_and_evaluation_durations(run_act
     assert result == 0
     assert metadata == {
         "run_id": "test-run",
+        "assistant": "codex",
+        "model": None,
+        "reasoning_effort": None,
         "generation_duration_seconds": 2.5,
         "evaluation_duration_seconds": 5.0,
     }
@@ -206,3 +214,129 @@ def test_evaluation_failure_records_elapsed_duration(run_actual):
     assert result == 1
     assert metadata["evaluation_duration_seconds"] == 5.0
     assert "SWE-bench evaluation duration: 5.00 seconds" in output
+
+
+def test_evaluation_launch_exception_records_metadata(run_actual):
+    result, _, error, metadata = run_actual(eval_raises=True, extra_args=("--model", "example"))
+    assert result == 1
+    assert "Evaluation failed to run: cannot launch evaluator" in error
+    assert metadata["model"] == "example"
+    assert metadata["evaluation_duration_seconds"] == 5.0
+
+
+@pytest.mark.parametrize("assistant,effort", [("codex", "minimal"), ("copilot", "max")])
+def test_selected_assistant_metadata_and_predictions(run_actual, tmp_path, assistant, effort):
+    result, _, error, metadata = run_actual(
+        skip_eval=True, extra_args=("--model", "example-model", "--reasoning-effort", effort,
+                                    "--assistant", assistant))
+    assert result == 0
+    assert metadata["assistant"] == assistant
+    assert metadata["model"] == "example-model"
+    assert metadata["reasoning_effort"] == effort
+    predictions = (tmp_path / "runs" / "test-run" / "predictions.jsonl").read_text().splitlines()
+    assert json.loads(predictions[0])["model_name_or_path"] == f"{assistant}-cli"
+    assert ("WARNING: Copilot sandbox" in error) == (assistant == "copilot")
+
+
+@pytest.mark.parametrize("failure", ["assistant", "empty", "checkout"])
+def test_copilot_failure_preserves_metadata(run_actual, failure):
+    result, _, error, metadata = run_actual(
+        extra_args=("--assistant", "copilot", "--model", "example", "--reasoning-effort", "high"),
+        generate_patch=failure != "checkout", assistant_returncode=3 if failure == "assistant" else 0,
+        empty_patch=failure == "empty")
+    assert result == 1
+    assert metadata["assistant"] == "copilot"
+    assert metadata["model"] == "example"
+    assert metadata["reasoning_effort"] == "high"
+    assert metadata["evaluation_duration_seconds"] is None
+    if failure == "assistant":
+        assert "Copilot failed with exit code 3; see copilot.log" in error
+    elif failure == "empty":
+        assert "Copilot produced no patch" in error
+
+
+@pytest.mark.parametrize("args", [
+    ("--assistant", "other"),
+    ("--assistant", "copilot", "--allow-network"),
+    ("--assistant", "copilot", "--reasoning-effort", "minimal"),
+    ("--assistant", "codex", "--reasoning-effort", "max"),
+])
+def test_invalid_assistant_options(run_driver, args):
+    result, _, _ = run_driver(*args)
+    assert result == 2
+
+
+def test_assistant_specific_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        driver.parser(["--assistant", "copilot", "--help"]).parse_args(["--assistant", "copilot", "--help"])
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "--allow-network" not in output
+    assert "--reasoning-effort {low,medium,high,xhigh,max}" in output
+
+
+def test_codex_option_abbreviations_remain_supported(run_driver):
+    result, _, _ = run_driver("--allow-net", "--skip-e")
+    assert result == 0
+
+
+def test_abbreviated_assistant_selects_correct_options(run_driver):
+    result, _, _ = run_driver("--assist", "copilot", "--reasoning-effort", "max")
+    assert result == 0
+
+
+def test_only_selected_executable_is_checked(tmp_path, monkeypatch, capsys):
+    dataset = types.ModuleType("datasets")
+    dataset.load_dataset = lambda name, split: [{"instance_id": "issue-0"}]
+    monkeypatch.setitem(sys.modules, "datasets", dataset)
+    (tmp_path / "SWE-bench").mkdir()
+    (tmp_path / "swe-bench-tasks").mkdir()
+    checked = []
+
+    def which(executable):
+        checked.append(executable)
+        return None if executable == "copilot" else f"/usr/bin/{executable}"
+
+    monkeypatch.setattr("shutil.which", which)
+    monkeypatch.setattr(sys, "argv", ["driver", "--root", str(tmp_path), "--assistant", "copilot"])
+    with pytest.raises(SystemExit) as exc:
+        driver.main()
+    assert exc.value.code == 2
+    assert checked == ["git", "copilot"]
+    assert "Executable not found on PATH: copilot" in capsys.readouterr().err
+
+
+def test_partial_failure_still_evaluates_successful_patch(tmp_path, monkeypatch):
+    dataset = types.ModuleType("datasets")
+    dataset.load_dataset = lambda name, split: [
+        {"instance_id": f"issue-{i}", "problem_statement": "Fix it", "repo": "org/repo", "base_commit": "abc"}
+        for i in range(2)
+    ]
+    monkeypatch.setitem(sys.modules, "datasets", dataset)
+    (tmp_path / "SWE-bench").mkdir()
+    (tmp_path / "swe-bench-tasks").mkdir()
+    monkeypatch.setattr("shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr(sys, "argv", ["driver", "--root", str(tmp_path), "--run-id", "partial",
+                                     "--count", "0", "--assistant", "copilot"])
+    commands = []
+
+    def fake_command(args, **kwargs):
+        commands.append(args)
+        if args[0] == "copilot" and kwargs["cwd"].parent.name == "issue-0":
+            return subprocess.CompletedProcess(args, 1, stdout="failed")
+        if args[:3] == ["git", "rev-parse", "HEAD"]:
+            stdout = "abc\n"
+        elif args[:3] == ["git", "diff", "--binary"]:
+            stdout = "diff --git a/file b/file\n"
+        else:
+            stdout = ""
+        return subprocess.CompletedProcess(args, 0, stdout=stdout)
+
+    monkeypatch.setattr(driver, "command", fake_command)
+    assert driver.main() == 1
+    run_dir = tmp_path / "runs" / "partial"
+    statuses = json.loads((run_dir / "generation_status.json").read_text())
+    assert [status["status"] for status in statuses] == ["generation_failed", "patch_generated"]
+    predictions = [json.loads(line) for line in (run_dir / "predictions.jsonl").read_text().splitlines()]
+    assert [prediction["instance_id"] for prediction in predictions] == ["issue-1"]
+    assert any(args[0] == "swebench" for args in commands)

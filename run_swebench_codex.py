@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Run Codex CLI on SWE-bench Lite instances and evaluate resulting patches.
+"""Run a coding assistant on SWE-bench Lite instances and evaluate resulting patches.
 
-Requirements: pip install datasets; git, codex, swebench, docker on PATH.
+Requirements: pip install datasets; git, the selected assistant, swebench, docker on PATH.
 Run from any directory; paths default to ~/swebench-experiments.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import random
 import re
 import shlex
@@ -18,14 +17,20 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from assistants.codex import CodexAssistant
+from assistants.copilot import CopilotAssistant
+from assistants.interface import AssistantFactory
+
 DATASET = "SWE-bench/SWE-bench_Lite"
+ASSISTANTS: dict[str, AssistantFactory] = {"codex": CodexAssistant, "copilot": CopilotAssistant}
 
 
 def command(args: list[str], *, cwd: Path | None = None, stdin: str | None = None,
-            log: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+            log: Path | None = None, check: bool = True,
+            env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     # Echo commands so a run can be reproduced or diagnosed from its console output.
     print("+", shlex.join(args), flush=True)
-    proc = subprocess.run(args, cwd=cwd, input=stdin, text=True,
+    proc = subprocess.run(args, cwd=cwd, input=stdin, text=True, env=env,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if log is not None:
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -38,8 +43,13 @@ def command(args: list[str], *, cwd: Path | None = None, stdin: str | None = Non
     return proc
 
 
-def parser() -> argparse.ArgumentParser:
+def parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
+    # Select the adapter first so its options and help reflect the chosen assistant.
+    selector = argparse.ArgumentParser(add_help=False)
+    selector.add_argument("--assistant", choices=ASSISTANTS, default="codex")
+    selected, _ = selector.parse_known_args(argv)
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument("--assistant", choices=ASSISTANTS, default="codex", help="Coding assistant to run")
     p.add_argument("--count", type=int, default=1, help="Number of random instances to attempt; 0 selects all in dataset order")
     p.add_argument("--seed", type=int, default=0, help="Random seed for dataset sampling")
     p.add_argument("--ids", nargs="+", help="Exact SWE-bench instance IDs, instead of --count/--seed")
@@ -48,13 +58,10 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--task-repo", type=Path, help="Directory of swe-bench-tasks checkout")
     p.add_argument("--run-id", help="Unique run ID; auto-generated when omitted")
     p.add_argument("--workers", type=int, default=1, help="SWE-bench evaluation workers")
-    p.add_argument("--model", help="Optional Codex model name (uses CLI default otherwise)")
-    p.add_argument("--reasoning-effort", choices=["minimal", "low", "medium", "high", "xhigh"],
-                   help="Optional Codex model_reasoning_effort override")
+    ASSISTANTS[selected.assistant].add_arguments(p)
     p.add_argument("--skip-eval", action="store_true", help="Generate patches and predictions only")
-    p.add_argument("--dry-run", action="store_true", help="Print selected issues without cloning or running Codex")
+    p.add_argument("--dry-run", action="store_true", help="Print selected issues without cloning or running an assistant")
     p.add_argument("--overwrite", action="store_true", help="Delete and recreate existing per-run workspaces")
-    p.add_argument("--allow-network", action="store_true", help="Allow Codex workspace-write network access (off by default)")
     return p
 
 
@@ -75,11 +82,13 @@ Instructions:
 
 
 def main() -> int:
-    a = parser().parse_args()
+    p = parser()
+    a = p.parse_args()
+    assistant = ASSISTANTS[a.assistant](a)
     if a.count < 0 or a.workers < 1:
-        parser().error("--count must be nonnegative and --workers must be positive")
+        p.error("--count must be nonnegative and --workers must be positive")
     if a.ids and (a.count != 1 or a.seed != 0):
-        parser().error("Use --ids alone, not with --count or --seed")
+        p.error("Use --ids alone, not with --count or --seed")
     from datasets import load_dataset
 
     # Materialize the split once so IDs can be validated and selection is deterministic.
@@ -89,25 +98,25 @@ def main() -> int:
     if a.ids:
         missing = [i for i in a.ids if i not in by_id]
         if missing:
-            parser().error("Unknown instance IDs: " + ", ".join(missing))
+            p.error("Unknown instance IDs: " + ", ".join(missing))
         chosen = [by_id[i] for i in dict.fromkeys(a.ids)]
     elif a.count == 0:
         chosen = rows
     else:
         if a.count > len(rows):
-            parser().error(f"Requested {a.count} instances, but the dataset contains only {len(rows)}")
+            p.error(f"Requested {a.count} instances, but the dataset contains only {len(rows)}")
         chosen = random.Random(a.seed).sample(rows, a.count)
 
     # Resolve all paths up front so subprocesses and saved artifacts use absolute locations.
     root = a.root.expanduser().resolve()
     sb_dir = (a.swebench_dir or root / "SWE-bench").expanduser().resolve()
     task_repo = (a.task_repo or root / "swe-bench-tasks").expanduser().resolve()
-    run_id = a.run_id or "codex-lite-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    run_id = a.run_id or assistant.run_prefix + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", run_id):
-        parser().error("--run-id may contain only letters, digits, dot, underscore, hyphen")
+        p.error("--run-id may contain only letters, digits, dot, underscore, hyphen")
     run_dir = root / "runs" / run_id
     if run_dir.exists() and any(run_dir.iterdir()) and not a.overwrite:
-        parser().error(f"Run directory already exists: {run_dir}. Choose a new --run-id")
+        p.error(f"Run directory already exists: {run_dir}. Choose a new --run-id")
 
     print(f"Dataset: {DATASET} (test split, {len(rows)} instances)")
     print(f"Run ID: {run_id}")
@@ -116,13 +125,17 @@ def main() -> int:
         return 0
 
     if not sb_dir.is_dir():
-        parser().error(f"SWE-bench checkout not found: {sb_dir}")
+        p.error(f"SWE-bench checkout not found: {sb_dir}")
     if not task_repo.is_dir():
-        parser().error(f"Task repository not found: {task_repo}")
-    for exe in ("git", "codex", "swebench", "docker"):
+        p.error(f"Task repository not found: {task_repo}")
+    for exe in ("git", assistant.executable, "swebench", "docker"):
         import shutil
         if shutil.which(exe) is None:
-            parser().error(f"Executable not found on PATH: {exe}")
+                        p.error(f"Executable not found on PATH: {exe}")
+
+        if assistant.name == "copilot":
+                print("WARNING: Copilot sandbox and network restrictions depend on the host and CLI configuration; "
+                            "network isolation and Codex-equivalent protections are not guaranteed.", file=sys.stderr, flush=True)
 
     run_dir.mkdir(parents=True, exist_ok=True)
     predictions = []
@@ -151,17 +164,7 @@ def main() -> int:
             actual = command(["git", "rev-parse", "HEAD"], cwd=workspace).stdout.strip()
             if actual != issue["base_commit"]:
                 raise RuntimeError(f"Wrong checkout: {actual}")
-            codex = ["codex", "exec", "--sandbox", "workspace-write", "--cd", str(workspace)]
-            if a.model:
-                codex += ["--model", a.model]
-            if a.reasoning_effort:
-                codex += ["-c", f'model_reasoning_effort="{a.reasoning_effort}"']
-            if a.allow_network:
-                codex += ["-c", 'sandbox_workspace_write.network_access=true']
-            codex += ["-"]
-            result = command(codex, cwd=workspace, stdin=prompt, log=idir / "codex.log", check=False)
-            if result.returncode != 0:
-                raise RuntimeError(f"Codex failed with exit code {result.returncode}; see codex.log")
+            assistant.run(workspace, prompt, idir, command)
             # git add -N makes untracked source files visible to git diff without staging contents.
             untracked = command(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=workspace).stdout
             files = [x for x in untracked.split("\0") if x]
@@ -171,8 +174,8 @@ def main() -> int:
             patch = command(["git", "diff", "--binary", "HEAD"], cwd=workspace).stdout
             (idir / "model.patch").write_text(patch)
             if not patch.strip():
-                raise RuntimeError("Codex produced no patch")
-            predictions.append({"instance_id": iid, "model_name_or_path": "codex-cli", "model_patch": patch})
+                raise RuntimeError(f"{assistant.display_name} produced no patch")
+            predictions.append({"instance_id": iid, "model_name_or_path": assistant.prediction_name, "model_patch": patch})
             statuses.append({"instance_id": iid, "status": "patch_generated", "patch_bytes": len(patch.encode())})
         except Exception as e:
             print(f"  FAILED: {e}", file=sys.stderr, flush=True)
@@ -199,16 +202,23 @@ def main() -> int:
                     "--run-id", run_id, "--task-repo", str(task_repo),
                     "-j", str(a.workers)]
         evaluation_started = time.perf_counter()
-        result = command(eval_cmd, cwd=sb_dir, log=run_dir / "evaluation.log", check=False)
+        try:
+            result = command(eval_cmd, cwd=sb_dir, log=run_dir / "evaluation.log", check=False)
+        except Exception as e:
+            print(f"Evaluation failed to run: {e}", file=sys.stderr)
+        else:
+            print(f"Evaluation logs: {sb_dir / 'logs' / 'evaluation' / run_id}")
+            print(f"Evaluation command exit code: {result.returncode}")
+            if result.returncode:
+                print(f"See {run_dir / 'evaluation.log'}", file=sys.stderr)
+            exit_code = 0 if result.returncode == 0 and len(predictions) == len(chosen) else 1
         evaluation_duration = time.perf_counter() - evaluation_started
-        print(f"Evaluation logs: {sb_dir / 'logs' / 'evaluation' / run_id}")
-        print(f"Evaluation command exit code: {result.returncode}")
-        if result.returncode:
-            print(f"See {run_dir / 'evaluation.log'}", file=sys.stderr)
-        exit_code = 0 if result.returncode == 0 and len(predictions) == len(chosen) else 1
 
     run_metadata = {
         "run_id": run_id,
+        "assistant": assistant.name,
+        "model": assistant.model,
+        "reasoning_effort": assistant.reasoning_effort,
         "generation_duration_seconds": generation_duration,
         "evaluation_duration_seconds": evaluation_duration,
     }

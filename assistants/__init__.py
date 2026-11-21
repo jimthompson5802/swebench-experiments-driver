@@ -1,0 +1,1 @@
+"""Coding assistant adapters used by the benchmark driver."""
