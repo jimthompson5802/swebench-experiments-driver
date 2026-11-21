@@ -166,13 +166,20 @@ def test_count_exceeding_dataset_and_empty_dataset(run_driver, empty, count, ava
 def test_invalid_count(run_driver):
     result, _, error = run_driver("--count", "-1")
     assert result == 2
-    assert "--count must be nonnegative and --workers must be positive" in error
+    assert "--count must be nonnegative" in error
 
 
 def test_invalid_workers(run_driver):
-    result, _, error = run_driver("--workers", "0")
+    result, _, error = run_driver("--evaluation-workers", "0")
     assert result == 2
-    assert "--workers must be positive" in error
+    assert "--evaluation-workers must be positive" in error
+
+
+@pytest.mark.parametrize("option", ["--generation-workers", "--evaluation-workers"])
+def test_invalid_worker_options(run_driver, option):
+    result, _, error = run_driver(option, "0")
+    assert result == 2
+    assert f"{option} must be positive" in error
 
 
 def test_exact_ids_preserve_order_and_remove_duplicates(run_driver):
@@ -365,3 +372,55 @@ def test_partial_failure_still_evaluates_successful_patch(tmp_path, monkeypatch)
     predictions = [json.loads(line) for line in (run_dir / "predictions.jsonl").read_text().splitlines()]
     assert [prediction["instance_id"] for prediction in predictions] == ["issue-1"]
     assert any(args[0] == "swebench" for args in commands)
+
+
+def test_workers_alias_remains_evaluation_compatibility(run_driver):
+    args = run_driver("--workers", "2")
+    assert args[0] == 0
+
+
+def test_generation_workers_limit_concurrency_and_preserve_order(tmp_path, monkeypatch):
+    dataset = types.ModuleType("datasets")
+    dataset.load_dataset = lambda name, split: [
+        {"instance_id": f"issue-{i}", "problem_statement": "Fix it",
+         "repo": "org/repo", "base_commit": "abc"}
+        for i in range(3)
+    ]
+    monkeypatch.setitem(sys.modules, "datasets", dataset)
+    (tmp_path / "SWE-bench").mkdir()
+    (tmp_path / "swe-bench-tasks").mkdir()
+    monkeypatch.setattr("shutil.which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.setattr(sys, "argv", [
+        "driver", "--root", str(tmp_path), "--run-id", "parallel",
+        "--count", "0", "--generation-workers", "2", "--skip-eval",
+    ])
+
+    active = 0
+    maximum = 0
+
+    def fake_command(args, **kwargs):
+        nonlocal active, maximum
+        if args[0] in ("codex", "copilot"):
+            active += 1
+            maximum = max(maximum, active)
+            try:
+                import time
+                time.sleep(0.01)
+            finally:
+                active -= 1
+            return subprocess.CompletedProcess(args, 0, stdout="")
+        if args[:3] == ["git", "rev-parse", "HEAD"]:
+            return subprocess.CompletedProcess(args, 0, stdout="abc\n")
+        if args[:3] == ["git", "diff", "--binary"]:
+            return subprocess.CompletedProcess(args, 0, stdout="diff --git a/file b/file\n")
+        return subprocess.CompletedProcess(args, 0, stdout="")
+
+    monkeypatch.setattr(driver, "command", fake_command)
+    assert driver.main() == 0
+    assert maximum == 2
+
+    run_dir = tmp_path / "runs" / "parallel"
+    statuses = json.loads((run_dir / "generation_status.json").read_text())
+    assert [status["instance_id"] for status in statuses] == ["issue-0", "issue-1", "issue-2"]
+    predictions = [json.loads(line) for line in (run_dir / "predictions.jsonl").read_text().splitlines()]
+    assert [prediction["instance_id"] for prediction in predictions] == ["issue-0", "issue-1", "issue-2"]
