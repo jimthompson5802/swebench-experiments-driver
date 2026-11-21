@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-import run_swebench_codex as driver
+import run_swebench as driver
 
 
 @pytest.fixture

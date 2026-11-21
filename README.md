@@ -3,7 +3,7 @@ title: SWE-bench Experiments Driver
 description: Run and evaluate coding assistants on SWE-bench Lite issues.
 ---
 
-`run_swebench_codex.py` runs Codex CLI or GitHub Copilot CLI on issues from the SWE-bench Lite test split. It checks out each issue's base commit, saves the assistant's changes as a patch, and evaluates the generated patches with the SWE-bench Docker harness. Codex remains the default assistant.
+`run_swebench.py` runs Codex CLI or GitHub Copilot CLI on issues from the SWE-bench Lite test split. It checks out each issue's base commit, saves the assistant's changes as a patch, and evaluates the generated patches with the SWE-bench Docker harness. Codex remains the default assistant.
 
 ## Setup
 
@@ -48,30 +48,30 @@ Run these examples from the driver directory with the virtual environment active
 Preview a randomly selected issue. This loads the dataset and prints the test-split size and selection without cloning a task workspace, calling Codex, or running Docker.
 
 ```bash
-python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" --dry-run
+python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" --dry-run
 ```
 
 Generate and evaluate a patch for the selected issue. The driver handles one issue and uses one evaluation worker by default.
 
 ```bash
-python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" --run-id first-run
+python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" --run-id first-run
 ```
 
 Select Copilot explicitly to generate a patch with its CLI:
 
 ```bash
-python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
+python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --assistant copilot --model MODEL-NAME --reasoning-effort high --skip-eval --run-id copilot-run
 ```
 
 To select a random batch without replacement, set the number of issues with `--count` and optionally set the random seed with `--seed`. The default seed is `0`. The same seed and count reproduce the selection when dataset contents and ordering and Python sampling behavior are unchanged. Set `--count 0` to select all issues in dataset order; the seed has no effect in this mode. Alternatively, pass one or more exact instance IDs with `--ids`. Use `--skip-eval` to generate patches and predictions only. The driver still checks for both checkouts and all required executables in this mode.
 
 ```bash
-python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
+python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --seed 10 --count 3 --workers 2 --run-id batch-10
-python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
+python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --ids sympy__sympy-20590 --skip-eval --run-id sympy-patch
-python run_swebench_codex.py --help
+python run_swebench.py --help
 ```
 
 ## Command-line arguments
