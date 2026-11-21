@@ -1,4 +1,7 @@
-# SWE-bench Experiments Driver
+---
+title: SWE-bench Experiments Driver
+description: Run and evaluate Codex CLI on SWE-bench Lite issues.
+---
 
 `run_swebench_codex.py` runs Codex CLI on issues from the SWE-bench Lite test split. It checks out each issue's base commit, saves Codex's changes as a patch, and evaluates the generated patches with the SWE-bench Docker harness.
 
@@ -29,23 +32,23 @@ See the [SWE-bench quickstart](https://www.swebench.com/SWE-bench/guides/quickst
 
 Run these examples from the driver directory with the virtual environment active. In a new shell, set `SWEBENCH_EXPERIMENTS_DIR` again and reactivate the virtual environment. The `--root` argument tells the driver where to look for both checkouts and where to write run artifacts.
 
-Preview the first issue. This loads the dataset and prints the selection without cloning a task workspace, calling Codex, or running Docker.
+Preview a randomly selected issue. This loads the dataset and prints the test-split size and selection without cloning a task workspace, calling Codex, or running Docker.
 
 ```bash
 python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" --dry-run
 ```
 
-Generate and evaluate a patch for the first issue. The driver handles one issue and uses one evaluation worker by default.
+Generate and evaluate a patch for the selected issue. The driver handles one issue and uses one evaluation worker by default.
 
 ```bash
 python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" --run-id first-run
 ```
 
-To select a batch, set the zero-based offset with `--start` and the number of issues with `--count`. Alternatively, pass one or more exact instance IDs with `--ids`. Use `--skip-eval` to generate patches and predictions only. The driver still checks for both checkouts and all required executables in this mode.
+To select a random batch without replacement, set the number of issues with `--count` and optionally set the random seed with `--seed`. The default seed is `0`. The same seed and count reproduce the selection when dataset contents and ordering and Python sampling behavior are unchanged. Alternatively, pass one or more exact instance IDs with `--ids`. Use `--skip-eval` to generate patches and predictions only. The driver still checks for both checkouts and all required executables in this mode.
 
 ```bash
 python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
-  --start 10 --count 3 --workers 2 --run-id batch-10
+  --seed 10 --count 3 --workers 2 --run-id batch-10
 python run_swebench_codex.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --ids sympy__sympy-20590 --skip-eval --run-id sympy-patch
 python run_swebench_codex.py --help
@@ -55,9 +58,9 @@ python run_swebench_codex.py --help
 
 | Argument | Default | Behavior |
 | --- | --- | --- |
-| `--count N` | `1` | Selects `N` issues. Must be positive. The run stops if fewer than `N` issues remain at the selected offset. |
-| `--start N` | `0` | Sets the zero-based offset into the SWE-bench Lite test split. Must be nonnegative. |
-| `--ids ID [ID ...]` | Select by offset and count | Selects exact instance IDs in the order given. Unknown IDs cause an error. Use this in place of `--start` and `--count`. |
+| `--count N` | `1` | Randomly selects `N` distinct issues. Must be positive and no greater than the test-split size. |
+| `--seed N` | `0` | Sets the integer seed for reproducible random sampling. |
+| `--ids ID [ID ...]` | Select by count and seed | Selects exact instance IDs in the order given, omitting duplicates. Unknown IDs cause an error. Use this in place of `--seed` and `--count`. |
 | `--root PATH` | `~/swebench-experiments` | Sets the output directory's parent and the base path for both checkouts. Pass the directory chosen during setup. |
 | `--swebench-dir PATH` | `<root>/SWE-bench` | Points to the installed SWE-bench checkout. The driver runs evaluation from this directory. |
 | `--task-repo PATH` | `<root>/swe-bench-tasks` | Points to the SWE-bench task repository used by the evaluator. |

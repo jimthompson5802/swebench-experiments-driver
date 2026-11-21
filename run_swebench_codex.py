@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import shlex
 import subprocess
@@ -37,9 +38,9 @@ def command(args: list[str], *, cwd: Path | None = None, stdin: str | None = Non
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--count", type=int, default=1, help="Number of dataset instances to attempt")
-    p.add_argument("--start", type=int, default=0, help="Zero-based dataset offset (ignored with --ids)")
-    p.add_argument("--ids", nargs="+", help="Exact SWE-bench instance IDs, instead of --count/--start")
+    p.add_argument("--count", type=int, default=1, help="Number of random dataset instances to attempt")
+    p.add_argument("--seed", type=int, default=0, help="Random seed for dataset sampling")
+    p.add_argument("--ids", nargs="+", help="Exact SWE-bench instance IDs, instead of --count/--seed")
     p.add_argument("--root", type=Path, default=Path.home() / "swebench-experiments")
     p.add_argument("--swebench-dir", type=Path, help="Directory of installed SWE-bench checkout")
     p.add_argument("--task-repo", type=Path, help="Directory of swe-bench-tasks checkout")
@@ -73,10 +74,10 @@ Instructions:
 
 def main() -> int:
     a = parser().parse_args()
-    if a.count < 1 or a.start < 0 or a.workers < 1:
-        parser().error("--count and --workers must be positive; --start must be nonnegative")
-    if a.ids and (a.count != 1 or a.start != 0):
-        parser().error("Use --ids alone, not with --count or --start")
+    if a.count < 1 or a.workers < 1:
+        parser().error("--count and --workers must be positive")
+    if a.ids and (a.count != 1 or a.seed != 0):
+        parser().error("Use --ids alone, not with --count or --seed")
     from datasets import load_dataset
 
     rows = list(load_dataset(DATASET, split="test"))
@@ -87,9 +88,9 @@ def main() -> int:
             parser().error("Unknown instance IDs: " + ", ".join(missing))
         chosen = [by_id[i] for i in dict.fromkeys(a.ids)]
     else:
-        chosen = rows[a.start:a.start + a.count]
-        if len(chosen) != a.count:
-            parser().error(f"Only {len(chosen)} instances remain from offset {a.start}")
+        if a.count > len(rows):
+            parser().error(f"Requested {a.count} instances, but the dataset contains only {len(rows)}")
+        chosen = random.Random(a.seed).sample(rows, a.count)
 
     root = a.root.expanduser().resolve()
     sb_dir = (a.swebench_dir or root / "SWE-bench").expanduser().resolve()
@@ -101,7 +102,7 @@ def main() -> int:
     if run_dir.exists() and any(run_dir.iterdir()) and not a.overwrite:
         parser().error(f"Run directory already exists: {run_dir}. Choose a new --run-id")
 
-    print(f"Dataset: {DATASET} (test split)")
+    print(f"Dataset: {DATASET} (test split, {len(rows)} instances)")
     print(f"Run ID: {run_id}")
     print(f"Selected ({len(chosen)}): " + ", ".join(r["instance_id"] for r in chosen))
     if a.dry_run:
