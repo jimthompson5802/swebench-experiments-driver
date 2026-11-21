@@ -22,6 +22,7 @@ DATASET = "SWE-bench/SWE-bench_Lite"
 
 def command(args: list[str], *, cwd: Path | None = None, stdin: str | None = None,
             log: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+    # Echo commands so a run can be reproduced or diagnosed from its console output.
     print("+", shlex.join(args), flush=True)
     proc = subprocess.run(args, cwd=cwd, input=stdin, text=True,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -80,8 +81,10 @@ def main() -> int:
         parser().error("Use --ids alone, not with --count or --seed")
     from datasets import load_dataset
 
+    # Materialize the split once so IDs can be validated and selection is deterministic.
     rows = list(load_dataset(DATASET, split="test"))
     by_id = {r["instance_id"]: r for r in rows}
+    # Explicit IDs take precedence; otherwise choose all rows or sample without replacement.
     if a.ids:
         missing = [i for i in a.ids if i not in by_id]
         if missing:
@@ -94,6 +97,7 @@ def main() -> int:
             parser().error(f"Requested {a.count} instances, but the dataset contains only {len(rows)}")
         chosen = random.Random(a.seed).sample(rows, a.count)
 
+    # Resolve all paths up front so subprocesses and saved artifacts use absolute locations.
     root = a.root.expanduser().resolve()
     sb_dir = (a.swebench_dir or root / "SWE-bench").expanduser().resolve()
     task_repo = (a.task_repo or root / "swe-bench-tasks").expanduser().resolve()
@@ -122,6 +126,7 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
     predictions = []
     statuses = []
+    # Isolate each benchmark instance so failures do not prevent later issues from running.
     for index, issue in enumerate(chosen, 1):
         iid = issue["instance_id"]
         print(f"\n[{index}/{len(chosen)}] {iid}", flush=True)
@@ -172,6 +177,7 @@ def main() -> int:
             statuses.append({"instance_id": iid, "status": "generation_failed", "error": str(e)})
         (run_dir / "generation_status.json").write_text(json.dumps(statuses, indent=2) + "\n")
 
+    # SWE-bench consumes one JSON object per line, including only successfully generated patches.
     pred_path = run_dir / "predictions.jsonl"
     with pred_path.open("w") as f:
         for prediction in predictions:
