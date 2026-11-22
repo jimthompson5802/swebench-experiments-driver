@@ -7,6 +7,9 @@
 ```mermaid
 ---
 config:
+    themeVariables:
+        xyChart:
+            plotColorPalette: "#3b82f6"
     xyChart:
         xAxis:
             labelFontSize: 10
