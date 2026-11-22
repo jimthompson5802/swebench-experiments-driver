@@ -6,5 +6,7 @@
 Example evaluation command
 
 ```bash
-swebench eval lite -p $SWEBENCH_EXPERIMENTS_DIR/runs/codex-lite/predictions.jsonl --run-id codex-lite --task-repo $SWEBENCH_EXPERIMENTS_DIR/swe-bench-tasks -j 4
+cd $SWEBENCH_EXPERIMENTS_DIR
+
+swebench eval lite -p "$SWEBENCH_EXPERIMENTS_DIR/runs/codex-lite/predictions.jsonl" --run-id codex-lite --task-repo "$SWEBENCH_EXPERIMENTS_DIR/swe-bench-tasks" -j 6
 ```
