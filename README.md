@@ -1,7 +1,6 @@
----
-title: SWE-bench Experiments Driver
-description: Run and evaluate coding assistants on SWE-bench Lite issues.
----
+# SWE-bench Experiments Driver
+
+Run and evaluate coding assistants on SWE-bench Lite issues.
 
 `run_swebench.py` runs Codex CLI or GitHub Copilot CLI on issues from the SWE-bench Lite test split. It checks out each issue's base commit, saves the assistant's changes as a patch, and evaluates the generated patches with the SWE-bench Docker harness. Codex remains the default assistant.
 

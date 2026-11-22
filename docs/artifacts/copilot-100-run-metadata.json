@@ -1,0 +1,8 @@
+{
+  "run_id": "copilot-100",
+  "assistant": "copilot",
+  "model": "gpt-6.1-terra",
+  "reasoning_effort": "medium",
+  "generation_duration_seconds": 2617.763778790999,
+  "evaluation_duration_seconds": 3626.8498597080015
+}
