@@ -86,6 +86,17 @@ python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
 
 To select a random batch without replacement, set the number of issues with `--count` and optionally set the random seed with `--seed`. The default seed is `0`. The same seed and count reproduce the selection when dataset contents and ordering and Python sampling behavior are unchanged. Set `--count 0` to select all issues in dataset order; the seed has no effect in this mode. Alternatively, pass one or more exact instance IDs with `--ids`. Use `--skip-eval` to generate patches and predictions only. The driver still checks for both checkouts and all required executables in this mode.
 
+Use the same run ID to generate predictions first and evaluate them later:
+
+```bash
+python3 run_swebench.py --ids sympy__sympy-20590 --skip-eval --run-id sympy-patch
+python3 run_swebench.py --skip-generation --run-id sympy-patch
+```
+
+The second command reads `<root>/runs/sympy-patch/predictions.jsonl` and refreshes `evaluation.log`.
+It preserves the saved predictions and `run_metadata.json`.
+
+
 ```bash
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --assistant codex --run-id codex-10 --model gpt-6.2-sol --reasoning-effort medium \
@@ -118,6 +129,7 @@ python run_swebench.py --help
 | `--workers N` | `1` | Deprecated compatibility alias for `--evaluation-workers`. |
 | `--model NAME` | Selected CLI default | Selects the model used for patch generation. Supported names depend on the assistant and account. |
 | `--reasoning-effort LEVEL` | Selected CLI default | Codex accepts `minimal`, `low`, `medium`, `high`, and `xhigh`. Copilot accepts `low`, `medium`, `high`, `xhigh`, and `max`; availability can depend on the model. |
+| `--skip-generation` | Off | Evaluates saved predictions for an existing `--run-id`. |
 | `--skip-eval` | Off | Generates patches and predictions, then skips evaluation. The driver still checks for both checkouts and all required executables. |
 | `--dry-run` | Off | Loads the dataset and prints the run ID and selected issues before checking prerequisites or creating workspaces. |
 | `--overwrite` | Off | Allows reuse of a nonempty run directory and deletes and recreates the existing directories for the selected issues. |
