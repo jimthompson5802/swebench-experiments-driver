@@ -1,0 +1,8 @@
+{
+  "run_id": "codex-100",
+  "assistant": "codex",
+  "model": "gpt-6.2-sol",
+  "reasoning_effort": "medium",
+  "generation_duration_seconds": 2695.7477529169996,
+  "evaluation_duration_seconds": 3730.890994208001
+}
