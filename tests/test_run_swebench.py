@@ -62,8 +62,6 @@ def run_actual(tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(sys, "argv", argv)
 
         def fake_command(args, **kwargs):
-            if args[0] == "swebench" and eval_raises:
-                raise OSError("cannot launch evaluator")
             if args[0] == "git" and args[1] == "clone" and not generate_patch:
                 raise RuntimeError("simulated generation failure")
             if args[0] == "git" and args[1:3] == ["rev-parse", "HEAD"]:
@@ -72,11 +70,16 @@ def run_actual(tmp_path, monkeypatch, capsys):
                 stdout = "" if empty_patch else "diff --git a/file.py b/file.py\n"
             else:
                 stdout = ""
-            returncode = (eval_returncode if args[0] == "swebench" else
-                          assistant_returncode if args[0] in ("codex", "copilot") else 0)
+            returncode = assistant_returncode if args[0] in ("codex", "copilot") else 0
             return subprocess.CompletedProcess(args, returncode, stdout=stdout)
 
+        def fake_evaluation(args, *, cwd, log):
+            if eval_raises:
+                raise OSError("cannot launch evaluator")
+            return eval_returncode
+
         monkeypatch.setattr(driver, "command", fake_command)
+        monkeypatch.setattr(driver, "_stream_evaluation", fake_evaluation)
         try:
             result = driver.main()
         except SystemExit as exc:
@@ -117,6 +120,49 @@ def test_command_saves_raw_jsonl_and_readable_log(tmp_path, monkeypatch):
     assert "turn.completed" in readable_path.read_text()
     assert "provider diagnostic" in readable_path.read_text()
     assert "input_tokens" in raw_path.read_text()
+
+
+def test_evaluation_streams_progress_before_exit(tmp_path, monkeypatch, capsys):
+    log = tmp_path / "evaluation.log"
+    acknowledged = tmp_path / "progress-seen"
+    stdout = sys.stdout
+
+    class Console:
+        def write(self, output):
+            if "\rEvaluating 1/2" in output:
+                acknowledged.touch()
+            return stdout.write(output)
+
+        def flush(self):
+            stdout.flush()
+
+    monkeypatch.setattr(sys, "stdout", Console())
+    script = r"""
+import sys
+import time
+from pathlib import Path
+
+sys.stderr.write("\rEvaluating 1/2")
+sys.stderr.flush()
+acknowledged = Path(sys.argv[1])
+deadline = time.monotonic() + 3
+while not acknowledged.exists():
+    if time.monotonic() >= deadline:
+        sys.exit(99)
+    time.sleep(0.01)
+sys.stderr.write("\rEvaluating 2/2\n")
+sys.stderr.flush()
+print("Evaluation summary", flush=True)
+sys.exit(3)
+"""
+    returncode = driver._stream_evaluation(
+        [sys.executable, "-c", script, str(acknowledged)], cwd=tmp_path, log=log)
+
+    assert returncode == 3
+    progress = "\rEvaluating 1/2\rEvaluating 2/2\n"
+    assert progress in capsys.readouterr().out
+    assert progress.encode() in log.read_bytes()
+    assert b"Evaluation summary" in log.read_bytes()
 
 
 def test_default_sample_and_dataset_size(run_driver, rows):
@@ -364,7 +410,12 @@ def test_partial_failure_still_evaluates_successful_patch(tmp_path, monkeypatch)
             stdout = ""
         return subprocess.CompletedProcess(args, 0, stdout=stdout)
 
+    def fake_evaluation(args, *, cwd, log):
+        commands.append(args)
+        return 0
+
     monkeypatch.setattr(driver, "command", fake_command)
+    monkeypatch.setattr(driver, "_stream_evaluation", fake_evaluation)
     assert driver.main() == 1
     run_dir = tmp_path / "runs" / "partial"
     statuses = json.loads((run_dir / "generation_status.json").read_text())
@@ -424,3 +475,67 @@ def test_generation_workers_limit_concurrency_and_preserve_order(tmp_path, monke
     assert [status["instance_id"] for status in statuses] == ["issue-0", "issue-1", "issue-2"]
     predictions = [json.loads(line) for line in (run_dir / "predictions.jsonl").read_text().splitlines()]
     assert [prediction["instance_id"] for prediction in predictions] == ["issue-0", "issue-1", "issue-2"]
+
+
+@pytest.mark.parametrize("returncode", [0, 7])
+def test_skip_generation_evaluates_saved_predictions(tmp_path, monkeypatch, returncode):
+    run_dir = tmp_path / "runs" / "saved"
+    run_dir.mkdir(parents=True)
+    sb_dir = tmp_path / "SWE-bench"
+    sb_dir.mkdir()
+    task_repo = tmp_path / "swe-bench-tasks"
+    task_repo.mkdir()
+    artifacts = {
+        "predictions.jsonl": json.dumps({
+            "instance_id": "issue-0", "model_name_or_path": "codex-cli", "model_patch": "patch",
+        }) + "\n",
+        "run_metadata.json": '{"generation_duration_seconds": 42}\n',
+        "generation_status.json": "[]\n",
+    }
+    for name, content in artifacts.items():
+        (run_dir / name).write_text(content)
+
+    monkeypatch.setitem(sys.modules, "datasets", None)
+    monkeypatch.setattr("shutil.which", {"swebench": "/bin/swebench", "docker": "/bin/docker"}.get)
+    monkeypatch.setattr(sys, "argv", [
+        "driver", "--root", str(tmp_path), "--skip-generation", "--run-id", "saved",
+        "--evaluation-workers", "3",
+    ])
+
+    def evaluate(args, *, cwd, log):
+        assert args == [
+            "swebench", "eval", "lite", "-p", str(run_dir / "predictions.jsonl"),
+            "--run-id", "saved", "--task-repo", str(task_repo), "-j", "3",
+        ]
+        assert cwd == sb_dir
+        assert log == run_dir / "evaluation.log"
+        log.write_text("evaluation output")
+        return returncode
+
+    monkeypatch.setattr(driver, "_stream_evaluation", evaluate)
+    assert driver.main() == returncode
+    assert (run_dir / "evaluation.log").read_text() == "evaluation output"
+    for name, content in artifacts.items():
+        assert (run_dir / name).read_text() == content
+
+
+@pytest.mark.parametrize(("args", "content", "message"), [
+    ([], None, "requires --run-id"),
+    (["--run-id", "saved", "--skip-eval"], None, "cannot be combined with --skip-eval"),
+    (["--run-id", "saved", "--dry-run"], None, "cannot be combined with --dry-run"),
+    (["--run-id", "saved", "--overwrite"], None, "cannot be combined with --overwrite"),
+    (["--run-id", "saved"], None, "Cannot read predictions"),
+    (["--run-id", "saved"], "\n", "No predictions"),
+    (["--run-id", "saved"], "this is not JSON", "Cannot read predictions"),
+    (["--run-id", "saved"], "{}", "Invalid prediction"),
+])
+def test_skip_generation_rejects_invalid_input(tmp_path, monkeypatch, capsys, args, content, message):
+    if content is not None:
+        run_dir = tmp_path / "runs" / "saved"
+        run_dir.mkdir(parents=True)
+        (run_dir / "predictions.jsonl").write_text(content)
+    monkeypatch.setattr(sys, "argv", ["driver", "--root", str(tmp_path), "--skip-generation", *args])
+    with pytest.raises(SystemExit) as exc:
+        driver.main()
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err
