@@ -7,10 +7,13 @@ Run from any directory; paths default to ~/swebench-experiments.
 from __future__ import annotations
 
 import argparse
+import codecs
 import json
+import locale
 import random
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -54,6 +57,29 @@ def command(args: list[str], *, cwd: Path | None = None, stdin: str | None = Non
     if json_log is not None:
         return subprocess.CompletedProcess(args, proc.returncode, output, proc.stderr)
     return proc
+
+
+def _stream_evaluation(args: list[str], *, cwd: Path, log: Path) -> int:
+    print("+", shlex.join(args), flush=True)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    encoding = locale.getpreferredencoding(False)
+    decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
+    with log.open("w", encoding=encoding, newline="") as transcript:
+        with subprocess.Popen(args, cwd=cwd, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT) as child:
+            assert child.stdout is not None
+            while chunk := child.stdout.read1(8192):
+                # Preserve carriage returns and forward updates before a newline arrives.
+                output = decoder.decode(chunk)
+                print(output, end="", flush=True)
+                transcript.write(output)
+                transcript.flush()
+            remaining = decoder.decode(b"", final=True)
+            if remaining:
+                print(remaining, end="", flush=True)
+                transcript.write(remaining)
+    print(f"  Output saved: {log}", flush=True)
+    return child.returncode
 
 
 def _readable_jsonl(output: str) -> str:
@@ -109,6 +135,8 @@ def parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     p.add_argument("--evaluation-workers", "--workers", dest="evaluation_workers", type=int, default=1,
                    help="SWE-bench evaluation workers (deprecated alias: --workers)")
     ASSISTANTS[selected.assistant].add_arguments(p)
+    p.add_argument("--skip-generation", action="store_true",
+                   help="Evaluate saved predictions for an existing --run-id")
     p.add_argument("--skip-eval", action="store_true", help="Generate patches and predictions only")
     p.add_argument("--dry-run", action="store_true", help="Print selected issues without cloning or running an assistant")
     p.add_argument("--overwrite", action="store_true", help="Delete and recreate existing per-run workspaces")
@@ -180,16 +208,83 @@ def generate_instance(index: int, issue: dict, total: int, run_dir: Path,
         return None, {"instance_id": iid, "status": "generation_failed", "error": str(exc)}
 
 
+def _evaluate(a: argparse.Namespace, sb_dir: Path, task_repo: Path,
+              run_id: str, pred_path: Path) -> int:
+    eval_cmd = ["swebench", "eval", "lite", "-p", str(pred_path),
+                "--run-id", run_id, "--task-repo", str(task_repo),
+                "-j", str(a.evaluation_workers)]
+    log = pred_path.parent / "evaluation.log"
+    try:
+        returncode = _stream_evaluation(eval_cmd, cwd=sb_dir, log=log)
+    except Exception as exc:
+        print(f"Evaluation failed to run: {exc}", file=sys.stderr)
+        return 1
+    print(f"Evaluation logs: {sb_dir / 'logs' / 'evaluation' / run_id}")
+    print(f"Evaluation command exit code: {returncode}")
+    if returncode:
+        print(f"See {log}", file=sys.stderr)
+    return returncode if returncode >= 0 else 128 - returncode
+
+
+def _evaluate_saved(p: argparse.ArgumentParser, a: argparse.Namespace) -> int:
+    if not a.run_id:
+        p.error("--skip-generation requires --run-id")
+    for flag in ("skip_eval", "dry_run", "overwrite"):
+        if getattr(a, flag):
+            p.error(f"--skip-generation cannot be combined with --{flag.replace('_', '-')}")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", a.run_id) or a.run_id in (".", ".."):
+        p.error("Invalid --run-id")
+
+    root = a.root.expanduser().resolve()
+    sb_dir = (a.swebench_dir or root / "SWE-bench").expanduser().resolve()
+    task_repo = (a.task_repo or root / "swe-bench-tasks").expanduser().resolve()
+    pred_path = root / "runs" / a.run_id / "predictions.jsonl"
+    try:
+        with pred_path.open(encoding="utf-8") as predictions:
+            count = 0
+            for line_number, line in enumerate(predictions, 1):
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                required = ("instance_id", "model_name_or_path", "model_patch")
+                if not isinstance(row, dict) or any(
+                    not isinstance(row.get(key), str) or not row[key].strip() for key in required
+                ):
+                    p.error(f"Invalid prediction at {pred_path}:{line_number}")
+                count += 1
+    except (OSError, ValueError) as exc:
+        p.error(f"Cannot read predictions from {pred_path}: {exc}")
+    if not count:
+        p.error(f"No predictions in {pred_path}")
+
+    _check_dependencies(p, sb_dir, task_repo, ("swebench", "docker"))
+    print(f"Evaluating {count} saved predictions from {pred_path}")
+    return _evaluate(a, sb_dir, task_repo, a.run_id, pred_path)
+
+
+def _check_dependencies(p: argparse.ArgumentParser, sb_dir: Path, task_repo: Path,
+                        executables: tuple[str, ...]) -> None:
+    if not sb_dir.is_dir():
+        p.error(f"SWE-bench checkout not found: {sb_dir}")
+    if not task_repo.is_dir():
+        p.error(f"Task repository not found: {task_repo}")
+    for exe in executables:
+        if shutil.which(exe) is None:
+            p.error(f"Executable not found on PATH: {exe}")
+
+
 def main() -> int:
     p = parser()
     a = p.parse_args()
+    if a.evaluation_workers < 1:
+        p.error("--evaluation-workers must be positive")
+    if a.skip_generation:
+        return _evaluate_saved(p, a)
     assistant = ASSISTANTS[a.assistant](a)
     if a.count < 0:
         p.error("--count must be nonnegative")
     if a.generation_workers < 1:
         p.error("--generation-workers must be positive")
-    if a.evaluation_workers < 1:
-        p.error("--evaluation-workers must be positive")
     if a.ids and (a.count != 1 or a.seed != 0):
         p.error("Use --ids alone, not with --count or --seed")
     from datasets import load_dataset
@@ -227,14 +322,7 @@ def main() -> int:
     if a.dry_run:
         return 0
 
-    if not sb_dir.is_dir():
-        p.error(f"SWE-bench checkout not found: {sb_dir}")
-    if not task_repo.is_dir():
-        p.error(f"Task repository not found: {task_repo}")
-    for exe in ("git", assistant.executable, "swebench", "docker"):
-        import shutil
-        if shutil.which(exe) is None:
-            p.error(f"Executable not found on PATH: {exe}")
+    _check_dependencies(p, sb_dir, task_repo, ("git", assistant.executable, "swebench", "docker"))
 
     if assistant.name == "copilot":
         print("WARNING: Copilot sandbox and network restrictions depend on the host and CLI configuration; "
@@ -287,22 +375,10 @@ def main() -> int:
         print("Evaluation skipped (--skip-eval).")
         exit_code = 0 if len(predictions) == len(chosen) else 1
     else:
-        # Run evaluation from SWE-bench checkout; preserve its standard log directory.
-        eval_cmd = ["swebench", "eval", "lite", "-p", str(pred_path),
-                    "--run-id", run_id, "--task-repo", str(task_repo),
-                    "-j", str(a.evaluation_workers)]
         evaluation_started = time.perf_counter()
-        try:
-            result = command(eval_cmd, cwd=sb_dir, log=run_dir / "evaluation.log", check=False)
-        except Exception as e:
-            print(f"Evaluation failed to run: {e}", file=sys.stderr)
-        else:
-            print(f"Evaluation logs: {sb_dir / 'logs' / 'evaluation' / run_id}")
-            print(f"Evaluation command exit code: {result.returncode}")
-            if result.returncode:
-                print(f"See {run_dir / 'evaluation.log'}", file=sys.stderr)
-            exit_code = 0 if result.returncode == 0 and len(predictions) == len(chosen) else 1
+        returncode = _evaluate(a, sb_dir, task_repo, run_id, pred_path)
         evaluation_duration = time.perf_counter() - evaluation_started
+        exit_code = 0 if returncode == 0 and len(predictions) == len(chosen) else 1
 
     run_metadata = {
         "run_id": run_id,
