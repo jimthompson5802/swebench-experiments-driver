@@ -162,6 +162,10 @@ python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --seed 42 --count 10 --generation-workers 4 --evaluation-workers 4
 
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
+  --assistant codex --run-id codex-10-6.1-terra --model gpt-6.1-terra --reasoning-effort medium \
+  --seed 42 --count 10 --generation-workers 4 --evaluation-workers 4
+
+python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --assistant copilot --run-id copilot-10 --model gpt-6.1-terra --reasoning-effort medium \
   --seed 42 --count 10 --generation-workers 4 --evaluation-workers 4
 

@@ -2,6 +2,7 @@
 |----------|:--------------:|---------|-----|-----|------------|
 |SWEBench Lite (300)|Codex|gpt-6.2-sol|Medium| ~64% of weekly quota| Insufficient Resources for Evaluation |
 |SWEBench Lite (100)|Codex|gpt-6.2-sol|Medium| ~27% of weekly quota| 74% (74 out of 100)|
+|SWEBench Lite (100)|Codex|gpt-6.1-terra|Medium| ~10% of weekly quota| |
 |SWEBench Lite (100)|Copilot|gpt-6.1-terra|Medium| 753 AI Credits of monthly quota| 70% (69 out of 99, see note in copilot-100) |
 
 ```mermaid
@@ -95,6 +96,15 @@ Over all summary of the 100 test cases: [`results.json](./artifacts/codex-100-re
 
 - Example of **unresolved** test case ["scikit-learn__scikit-learn-10508"](./artifacts/codex-100-test-case-unresolved-example.json)
 
+## Results codex-100-6.1-terra
+
+Started with 99% at end of patch generation 89% of weekly quota.
+
+```bash
+python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
+  --assistant codex --run-id codex-100-6.1-terra --model gpt-6.1-terra --reasoning-effort medium \
+  --seed 42 --count 100 --generation-workers 4 --evaluation-workers 4
+```
 
 ## Results copilot-100
 
