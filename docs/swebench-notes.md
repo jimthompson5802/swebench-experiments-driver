@@ -32,6 +32,17 @@ swebench eval lite -p "$SWEBENCH_EXPERIMENTS_DIR/runs/codex-lite/predictions.jso
 ```
 
 
+## Estimated disk storage
+
+| Run | Cloned instance repositories | Docker evaluation images |
+| --- | ---: | ---: |
+| `codex-100` | ~28 GB (100 clones) | ~71 GB (100 images) |
+| `copilot-100` | ~29 GB (100 clones) | ~71 GB (99 images used) |
+
+Repository estimates come from `du` on the saved per-instance `repo/` directories after patch generation, including Git history, working trees, and any generated files left inside them. The measured totals were 28.48 GB for Codex and 29.01 GB for Copilot, a difference of about 0.54 GB before rounding. Git packfiles totaled about 23 GB in each run and differed by less than 1 MB in aggregate. For example, the Copilot workspace for `scikit-learn__scikit-learn-14087` used about 96 MB more, mostly under `build/` and `sklearn/`, while its `.git` directory used the same space as Codex's. The workspace directories for both runs occupy about **57 GB** combined.
+
+Docker reported about **71 GB** for the shared set of 100 SWE-bench images after accounting for shared layers and subtracting unrelated images. Copilot evaluated 99 of the same instances, so the table uses the measured shared-set size as its estimate. Count the image storage once for the two runs. The estimates exclude Docker build cache, evaluation logs, and other run artifacts.
+
 ## Results codex-100
 
 ```bash

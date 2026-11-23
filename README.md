@@ -4,6 +4,34 @@ Run and evaluate coding assistants on SWE-bench Lite issues.
 
 `run_swebench.py` runs Codex CLI or GitHub Copilot CLI on issues from the SWE-bench Lite test split. It checks out each issue's base commit, saves the assistant's changes as a patch, and evaluates the generated patches with the SWE-bench Docker harness. Codex remains the default assistant.
 
+## Recorded experiments
+
+The two runs below selected the same 100 SWE-bench Lite issues with seed `42`.
+Copilot produced patches for 99 issues, so its evaluation covered 99 of the 100 selected issues.
+The [workflow description](docs/swebench-workflow.md) traces patch generation and Docker evaluation. The [experiment notes](docs/swebench-notes.md) contain the run commands, logs, metadata, and examples of resolved and unresolved cases.
+
+| Run | Model | Reasoning effort | Resolved / evaluated |
+| --- | --- | --- | --- |
+| [`codex-100`](docs/artifacts/codex-100-results.json) | `gpt-6.2-sol` | `medium` | 74 / 100 |
+| [`copilot-100`](docs/artifacts/copilot-100-results.json) | `gpt-6.1-terra` | `medium` | 69 / 99 |
+
+| Run | Patch generation | Docker evaluation | Total elapsed | Cloned workspaces |
+| --- | ---: | ---: | ---: | ---: |
+| `codex-100` | 45 min | 62 min | 1 hr 47 min | ~28 GB |
+| `copilot-100` | 44 min | 60 min | 1 hr 44 min | ~29 GB |
+
+The Docker evaluation images took up about **71 GB** for the shared set of 100 images. Copilot used 99 of those images. Together, the cloned workspaces and shared images occupied about **128 GB**, excluding Docker build cache, logs, and other artifacts. See the [storage estimates](docs/swebench-notes.md#estimated-disk-storage) for the measurement details.
+
+## Analyze generation tokens and estimated costs
+
+The [token usage notebook](notebooks/coding-assistant-tokens.ipynb) reports input and output tokens, cache reads and writes, and how many generation attempts had usable token data. It includes usage from failed attempts when available. Cost estimates use the checked-in [vendor rate snapshot](notebooks/coding-assistant-token-rates.json).
+
+1. Install the notebook kernel in the repository's local environment with `.venv/bin/python -m pip install ipykernel`.
+2. Open the notebook in VS Code and select `.venv/bin/python` as its kernel.
+3. Set `DATA_ROOT` to the directory passed to `--root` and set `RUN_IDS` to the runs you want to analyze. Run all cells.
+
+Each run needs `run_metadata.json` with an explicit model, `generation_status.json`, and the per-issue `codex.jsonl` or `copilot.jsonl` logs under `DATA_ROOT / "runs" / run_id`. Use `--model` when generating patches for a run you plan to analyze. The checked-in experiment artifacts contain evaluation results and examples. The notebook reads the full generation logs from your experiment directory.
+
 ## Setup
 
 Install Python 3.10 or later, Git, Docker, and the authenticated CLI for the assistant you select. Docker must be installed and running because the SWE-bench evaluator executes test environments in containers. See the [SWE-bench Docker setup guide](https://www.swebench.com/SWE-bench/guides/docker_setup/) and the [GitHub Copilot CLI setup guide](https://docs.github.com/en/copilot/how-tos/copilot-cli/cli-getting-started).
@@ -177,24 +205,3 @@ fields are provider-specific. The raw per-issue files preserve the original stdo
 stream for later processing, including partial output from failed assistant runs.
 
 In run metadata, a `null` model or reasoning effort means no override was supplied; it does not identify the effective CLI default. The harness writes test results under `logs/evaluation/<run-id>/` inside the SWE-bench checkout. Check its `results.json` for the evaluation outcome. The driver can evaluate the patches it generated even if some issues failed during generation. It returns a nonzero exit code if any selected issue fails to produce a patch or if the evaluation command fails.
-
-## Recorded experiments
-
-The two runs below selected the same 100 SWE-bench Lite issues with seed `42`.
-Copilot produced patches for 99 issues, so its evaluation covered 99 of the 100 selected issues.
-The run commands, logs, metadata, and examples of resolved and unresolved cases are in the [experiment notes](docs/swebench-notes.md).
-
-| Run | Model | Reasoning effort | Resolved / evaluated |
-| --- | --- | --- | --- |
-| [`codex-100`](docs/artifacts/codex-100-results.json) | `gpt-6.2-sol` | `medium` | 74 / 100 |
-| [`copilot-100`](docs/artifacts/copilot-100-results.json) | `gpt-6.1-terra` | `medium` | 69 / 99 |
-
-## Analyze generation tokens and estimated costs
-
-The [token usage notebook](notebooks/coding-assistant-tokens.ipynb) reports input and output tokens, cache reads and writes, and how many generation attempts had usable token data. It includes usage from failed attempts when available. Cost estimates use the checked-in [vendor rate snapshot](notebooks/coding-assistant-token-rates.json).
-
-1. Install the notebook kernel in the repository's local environment with `.venv/bin/python -m pip install ipykernel`.
-2. Open the notebook in VS Code and select `.venv/bin/python` as its kernel.
-3. Set `DATA_ROOT` to the directory passed to `--root` and set `RUN_IDS` to the runs you want to analyze. Run all cells.
-
-Each run needs `run_metadata.json` with an explicit model, `generation_status.json`, and the per-issue `codex.jsonl` or `copilot.jsonl` logs under `DATA_ROOT / "runs" / run_id`. Use `--model` when generating patches for a run you plan to analyze. The checked-in experiment artifacts contain evaluation results and examples. The notebook reads the full generation logs from your experiment directory.
