@@ -2,7 +2,11 @@
 
 Run and evaluate coding assistants on SWE-bench Lite issues.
 
+SWE-bench measures how well coding agents resolve real GitHub issues from open-source projects. For each issue, an agent starts from a specified repository revision and submits a patch. The benchmark runs tests to check whether the patch fixes the issue and preserves existing behavior. SWE-bench Lite is a curated subset of 300 issues designed to reduce evaluation cost. [Official SWE-bench homepage](https://www.swebench.com/)
+
 `run_swebench.py` runs Codex CLI or GitHub Copilot CLI on issues from the SWE-bench Lite test split. It checks out each issue's base commit, saves the assistant's changes as a patch, and evaluates the generated patches with the SWE-bench Docker harness. Codex remains the default assistant.
+
+For the work reported in this repo, the recorded experiments use a 100-issue subset of SWE-bench Lite because of limits in time, disk space and available coding assistant credits.
 
 ## Recorded experiments
 
