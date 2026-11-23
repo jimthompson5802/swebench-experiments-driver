@@ -16,8 +16,8 @@ The [workflow description](docs/swebench-workflow.md) traces patch generation an
 
 | Run | Model | Reasoning effort | Resolved / evaluated |
 | --- | --- | --- | --- |
-| [`codex-100`](docs/artifacts/codex-100-results.json) | `gpt-6.2-sol` | `medium` | 74 / 100 |
-| [`copilot-100`](docs/artifacts/copilot-100-results.json) | `gpt-6.1-terra` | `medium` | 69 / 99 |
+| [`codex-100`](docs/artifacts/codex-100-results.json) | `gpt-6.2-sol` | `medium` | 74 / 100 (74%) |
+| [`copilot-100`](docs/artifacts/copilot-100-results.json) | `gpt-6.1-terra` | `medium` | 69 / 99 (~70%)|
 
 | Run | Patch generation | Docker evaluation | Total elapsed | Cloned workspaces |
 | --- | ---: | ---: | ---: | ---: |
