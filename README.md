@@ -47,21 +47,21 @@ uv pip install datasets
 swebench eval --help
 ```
 
-Install SWE-bench and `datasets` in the environment used to run its CLI, and install `datasets` in the driver environment because `run_swebench.py` loads the dataset directly.
+Run the driver with this environment active so it can import `datasets` and find the `swebench` executable on `PATH`. The [test setup](#run-tests) uses a separate environment inside this repository.
 
 See the [SWE-bench quickstart](https://www.swebench.com/SWE-bench/guides/quickstart/) and [CLI reference](https://www.swebench.com/SWE-bench/reference/cli/).
 
-For Copilot runs, install and authenticate GitHub Copilot CLI separately. The installed version must support `--sandbox`, `--no-ask-user`, `--allow-tool`, `--disable-builtin-mcps`, `--excluded-tools`, and, when selected, `--model` and `--reasoning-effort`. Check `copilot --help` and the [Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference). Unsupported CLI options cause the assistant invocation to fail; check the Copilot log for details.
+For Copilot runs, install and authenticate GitHub Copilot CLI separately. The installed version must support `--sandbox`, `--no-ask-user`, `--allow-tool`, `--disable-builtin-mcps`, `--excluded-tools`, and `--output-format=json`. Model and reasoning overrides also require `--model` and `--reasoning-effort`. Check `copilot --help` and the [Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference). The per-issue Copilot log records errors from unsupported options.
 
 > [!WARNING]
 > Copilot runs request local sandboxing and allow file edits and shell commands. Sandbox availability and restrictions depend on the host and Copilot configuration; an unsupported sandbox can fall back to unsandboxed execution. Built-in file tools enforce sandbox policy on a best-effort basis. Disabling built-in MCP servers and `web_fetch` does not prevent shell network access or other configured tools from accessing external content. The driver disables the inherited `COPILOT_ALLOW_ALL` environment setting for the Copilot subprocess, but saved approvals, configuration, and enterprise policies can still affect permissions. Use independently configured isolation and network controls if those restrictions are required. See [GitHub's local sandbox documentation](https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/about-cloud-and-local-sandboxes).
 
 ## Run the driver
 
-Run these examples from the driver directory with the virtual environment active from `$SWEBENCH_EXPERIMENT_DIR/SWE-bench/.venv`. In a new shell, set `SWEBENCH_EXPERIMENTS_DIR` again and reactivate the virtual environment with `source $SWEBENCH_EXPERIMENTS_DIR/SWE-bench/.venv/bin/activate`. The `--root` argument tells the driver where to look for both checkouts and where to write run artifacts.
+Run these examples from the driver directory. In a new shell, set `HF_TOKEN` and `SWEBENCH_EXPERIMENTS_DIR` again and activate the SWE-bench environment. Pass `--root` to use the configured directory for both checkouts and run artifacts.
 
 ```bash
-source $SWEBENCH_EXPERIMENTS_DIR/SWE-bench/.venv/bin/activate
+source "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench/.venv/bin/activate"
 ```
 
 Preview a randomly selected issue. This loads the dataset and prints the test-split size and selection without cloning a task workspace, calling Codex, or running Docker.
@@ -70,31 +70,32 @@ Preview a randomly selected issue. This loads the dataset and prints the test-sp
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" --dry-run
 ```
 
-Generate and evaluate a patch for the selected issue. The driver handles patch generation sequentially and uses one evaluation worker by default.
+Generate and evaluate a patch with Codex, the default assistant. Generation and evaluation each use one worker by default.
 
 ```bash
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" --run-id first-run
 ```
 
-Select Copilot explicitly to generate a patch with its CLI:
+Select Copilot explicitly to generate a patch with its CLI.
 
 ```bash
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --assistant copilot --model MODEL-NAME --reasoning-effort high --skip-eval --run-id copilot-run
 ```
 
-To select a random batch without replacement, set the number of issues with `--count` and optionally set the random seed with `--seed`. The default seed is `0`. The same seed and count reproduce the selection when dataset contents and ordering and Python sampling behavior are unchanged. Set `--count 0` to select all issues in dataset order; the seed has no effect in this mode. Alternatively, pass one or more exact instance IDs with `--ids`. Use `--skip-eval` to generate patches and predictions only. The driver still checks for both checkouts and all required executables in this mode.
+To select a random batch without replacement, set `--count` and optionally set `--seed`. The same seed and count reproduce the selection with the same dataset order and Python sampling behavior. Set `--count 0` to select all issues in dataset order or pass exact instance IDs with `--ids`.
 
-Use the same run ID to generate predictions first and evaluate them later:
+Use `--skip-eval` to generate patches and predictions only. The driver still checks for both checkouts and for Git, the selected assistant CLI, `swebench`, and Docker. To evaluate saved predictions, use `--skip-generation` with the same root and run ID.
 
 ```bash
-python3 run_swebench.py --ids sympy__sympy-20590 --skip-eval --run-id sympy-patch
-python3 run_swebench.py --skip-generation --run-id sympy-patch
+python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
+  --ids sympy__sympy-20590 --skip-eval --run-id sympy-patch
+python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
+  --skip-generation --run-id sympy-patch
 ```
 
 The second command reads `<root>/runs/sympy-patch/predictions.jsonl` and refreshes `evaluation.log`.
-It preserves the saved predictions and `run_metadata.json`.
-
+It preserves the saved predictions and `run_metadata.json` and only needs the two checkouts, `swebench`, and Docker.
 
 ```bash
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
@@ -103,12 +104,10 @@ python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
 
 python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --assistant copilot --run-id copilot-10 --model gpt-6.1-terra --reasoning-effort medium \
-  --seed 42 --count 10 --generation-workers 4 --evaluation-workers 4 
-
-python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
-  --ids sympy__sympy-20590 --skip-eval --run-id sympy-patch
+  --seed 42 --count 10 --generation-workers 4 --evaluation-workers 4
 
 python run_swebench.py --help
+python run_swebench.py --assistant copilot --help
 ```
 
 ## Command-line arguments
@@ -128,7 +127,7 @@ python run_swebench.py --help
 | `--workers N` | `1` | Deprecated compatibility alias for `--evaluation-workers`. |
 | `--model NAME` | Selected CLI default | Selects the model used for patch generation. Supported names depend on the assistant and account. |
 | `--reasoning-effort LEVEL` | Selected CLI default | Codex accepts `minimal`, `low`, `medium`, `high`, and `xhigh`. Copilot accepts `low`, `medium`, `high`, `xhigh`, and `max`; availability can depend on the model. |
-| `--skip-generation` | Off | Evaluates saved predictions for an existing `--run-id`. |
+| `--skip-generation` | Off | Evaluates saved predictions for an existing `--run-id`. Incompatible with `--skip-eval`, `--dry-run`, and `--overwrite`. |
 | `--skip-eval` | Off | Generates patches and predictions, then skips evaluation. The driver still checks for both checkouts and all required executables. |
 | `--dry-run` | Off | Loads the dataset and prints the run ID and selected issues before checking prerequisites or creating workspaces. |
 | `--overwrite` | Off | Allows reuse of a nonempty run directory and deletes and recreates the existing directories for the selected issues. |
@@ -137,9 +136,12 @@ python run_swebench.py --help
 
 ## Run tests
 
-With the virtual environment active and the requirements installed, run the tests from the driver directory:
+From the driver directory, use Python 3.10 or later to create a local test environment and install the pinned test dependencies.
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 python -m pytest -v
 ```
 
@@ -175,3 +177,24 @@ fields are provider-specific. The raw per-issue files preserve the original stdo
 stream for later processing, including partial output from failed assistant runs.
 
 In run metadata, a `null` model or reasoning effort means no override was supplied; it does not identify the effective CLI default. The harness writes test results under `logs/evaluation/<run-id>/` inside the SWE-bench checkout. Check its `results.json` for the evaluation outcome. The driver can evaluate the patches it generated even if some issues failed during generation. It returns a nonzero exit code if any selected issue fails to produce a patch or if the evaluation command fails.
+
+## Recorded experiments
+
+The two runs below selected the same 100 SWE-bench Lite issues with seed `42`.
+Copilot produced patches for 99 issues, so its evaluation covered 99 of the 100 selected issues.
+The run commands, logs, metadata, and examples of resolved and unresolved cases are in the [experiment notes](docs/swebench-notes.md).
+
+| Run | Model | Reasoning effort | Resolved / evaluated |
+| --- | --- | --- | --- |
+| [`codex-100`](docs/artifacts/codex-100-results.json) | `gpt-6.2-sol` | `medium` | 74 / 100 |
+| [`copilot-100`](docs/artifacts/copilot-100-results.json) | `gpt-6.1-terra` | `medium` | 69 / 99 |
+
+## Analyze generation tokens and estimated costs
+
+The [token usage notebook](notebooks/coding-assistant-tokens.ipynb) reports input and output tokens, cache reads and writes, and how many generation attempts had usable token data. It includes usage from failed attempts when available. Cost estimates use the checked-in [vendor rate snapshot](notebooks/coding-assistant-token-rates.json).
+
+1. Install the notebook kernel in the repository's local environment with `.venv/bin/python -m pip install ipykernel`.
+2. Open the notebook in VS Code and select `.venv/bin/python` as its kernel.
+3. Set `DATA_ROOT` to the directory passed to `--root` and set `RUN_IDS` to the runs you want to analyze. Run all cells.
+
+Each run needs `run_metadata.json` with an explicit model, `generation_status.json`, and the per-issue `codex.jsonl` or `copilot.jsonl` logs under `DATA_ROOT / "runs" / run_id`. Use `--model` when generating patches for a run you plan to analyze. The checked-in experiment artifacts contain evaluation results and examples. The notebook reads the full generation logs from your experiment directory.
