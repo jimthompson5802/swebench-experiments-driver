@@ -26,6 +26,33 @@ The Docker evaluation images took up about **71 GB** for the shared set of 100 i
 
 The [token usage notebook](notebooks/coding-assistant-tokens.ipynb) reports input and output tokens, cache reads and writes, and how many generation attempts had usable token data. It includes usage from failed attempts when available. Cost estimates use the checked-in [vendor rate snapshot](notebooks/coding-assistant-token-rates.json).
 
+### Recorded token usage
+
+| Run ID | Model | Attempts counted | Coverage | Total input | Cached input reads | Cache writes | Output |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| codex-100 | gpt-6.2-sol | 100/100 | Complete | 42,760,124 | 38,936,192 | 0 | 282,735 |
+| copilot-100 | gpt-6.1-terra | 100/100 | Complete | 51,152,386 | 48,583,842 | 2,563,075 | 465,774 |
+
+### Standard token rates (USD per million)
+
+OpenAI API Standard short-context pricing (30-minute cache writes) and GitHub Copilot default-tier pricing.
+
+| Assistant | Model | Ordinary input | Cache reads | Cache writes | Output | Source |
+| --- | --- | --- | --- | --- | --- | --- |
+| codex | gpt-6.2-sol | $2.0 | $0.1 | $2.5 | $10.0 | [Vendor pricing](https://developers.openai.com/api/docs/models/gpt-6.2-sol) |
+| copilot | gpt-6.1-terra | $1.0 | $0.05 | $1.25 | $5.0 | [Vendor pricing](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing) |
+
+### Estimated generation costs (USD)
+
+These estimates apply the notebook’s checked-in rates to recorded usage. Actual charges depend on context tiers, cache retention, and plan billing.
+
+| Run ID | Model | Coverage | Ordinary input | Cache reads | Cache writes | Output | Total |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| codex-100 | gpt-6.2-sol | Complete | $7.6479 | $3.8936 | $0.0000 | $2.8274 | $14.3688 |
+| copilot-100 | gpt-6.1-terra | Complete | $0.0055 | $2.4292 | $3.2038 | $2.3289 | $7.9674 |
+
+### Reproduce the analysis
+
 1. Install the notebook kernel in the repository's local environment with `.venv/bin/python -m pip install ipykernel`.
 2. Open the notebook in VS Code and select `.venv/bin/python` as its kernel.
 3. Set `DATA_ROOT` to the directory passed to `--root` and set `RUN_IDS` to the runs you want to analyze. Run all cells.
