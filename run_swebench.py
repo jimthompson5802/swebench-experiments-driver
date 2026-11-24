@@ -208,11 +208,13 @@ def generate_instance(index: int, issue: dict, total: int, run_dir: Path,
         return None, {"instance_id": iid, "status": "generation_failed", "error": str(exc)}
 
 
-def _evaluate(a: argparse.Namespace, sb_dir: Path, task_repo: Path,
+def _evaluate(a: argparse.Namespace, sb_dir: Path, task_repo: Path | None,
               run_id: str, pred_path: Path) -> int:
     eval_cmd = ["swebench", "eval", "lite", "-p", str(pred_path),
-                "--run-id", run_id, "--task-repo", str(task_repo),
-                "-j", str(a.evaluation_workers)]
+                "--run-id", run_id]
+    if task_repo is not None:
+        eval_cmd.extend(["--task-repo", str(task_repo)])
+    eval_cmd.extend(["-j", str(a.evaluation_workers)])
     log = pred_path.parent / "evaluation.log"
     try:
         returncode = _stream_evaluation(eval_cmd, cwd=sb_dir, log=log)
@@ -237,7 +239,7 @@ def _evaluate_saved(p: argparse.ArgumentParser, a: argparse.Namespace) -> int:
 
     root = a.root.expanduser().resolve()
     sb_dir = (a.swebench_dir or root / "SWE-bench").expanduser().resolve()
-    task_repo = (a.task_repo or root / "swe-bench-tasks").expanduser().resolve()
+    task_repo = a.task_repo.expanduser().resolve() if a.task_repo is not None else None
     pred_path = root / "runs" / a.run_id / "predictions.jsonl"
     try:
         with pred_path.open(encoding="utf-8") as predictions:
@@ -262,11 +264,11 @@ def _evaluate_saved(p: argparse.ArgumentParser, a: argparse.Namespace) -> int:
     return _evaluate(a, sb_dir, task_repo, a.run_id, pred_path)
 
 
-def _check_dependencies(p: argparse.ArgumentParser, sb_dir: Path, task_repo: Path,
+def _check_dependencies(p: argparse.ArgumentParser, sb_dir: Path, task_repo: Path | None,
                         executables: tuple[str, ...]) -> None:
     if not sb_dir.is_dir():
         p.error(f"SWE-bench checkout not found: {sb_dir}")
-    if not task_repo.is_dir():
+    if task_repo is not None and not task_repo.is_dir():
         p.error(f"Task repository not found: {task_repo}")
     for exe in executables:
         if shutil.which(exe) is None:
@@ -308,7 +310,7 @@ def main() -> int:
     # Resolve all paths up front so subprocesses and saved artifacts use absolute locations.
     root = a.root.expanduser().resolve()
     sb_dir = (a.swebench_dir or root / "SWE-bench").expanduser().resolve()
-    task_repo = (a.task_repo or root / "swe-bench-tasks").expanduser().resolve()
+    task_repo = a.task_repo.expanduser().resolve() if a.task_repo is not None else None
     run_id = a.run_id or assistant.run_prefix + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", run_id):
         p.error("--run-id may contain only letters, digits, dot, underscore, hyphen")

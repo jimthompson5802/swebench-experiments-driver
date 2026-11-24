@@ -1,6 +1,6 @@
 # SWE-bench Lite workflow
 
-[run_swebench.py](../run_swebench.py) generates patches with Codex or GitHub Copilot, then hands those patches to the SWE-bench CLI for evaluation in Docker. Generation uses the Hugging Face SWE-bench Lite test split to select issues. Evaluation uses the task metadata and Docker build definitions in the local `swe-bench-tasks` checkout. The instance ID connects the issue, patch, and evaluation result.
+[run_swebench.py](../run_swebench.py) generates patches with Codex or GitHub Copilot, then hands those patches to the SWE-bench CLI for evaluation in Docker. Generation uses the Hugging Face SWE-bench Lite test split to select issues. Evaluation uses the task repository selected by the evaluator or supplied through `--task-repo`. The instance ID connects the issue, patch, and evaluation result.
 
 ```mermaid
 flowchart TD
@@ -8,7 +8,7 @@ flowchart TD
     B --> C["Assistant edits a checkout at each issue's base commit"]
     C --> D["predictions.jsonl"]
     D --> E["swebench eval lite"]
-    F["Local swe-bench-tasks checkout"] --> E
+    F["Task repository"] --> E
     E --> G["Docker harness applies patches and runs benchmark tests"]
     G --> H["Per-instance logs and results.json"]
 ```
@@ -29,8 +29,10 @@ The driver invokes the installed `swebench` executable from `--swebench-dir` (de
 
 ```bash
 swebench eval lite -p <predictions.jsonl> --run-id <run-id> \
-  --task-repo <task-repo> -j <evaluation-workers>
+  -j <evaluation-workers>
 ```
+
+To use a specific local task checkout, pass `--task-repo PATH` to the driver.
 
 | Step | SWE-bench modules | Role |
 | --- | --- | --- |

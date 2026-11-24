@@ -94,12 +94,13 @@ python -m pip install -r requirements.txt
 
 The requirements file captures the test environment, including pytest. The driver also needs the `datasets` package and the SWE-bench CLI, which are installed separately below.
 
-Set `SWEBENCH_EXPERIMENTS_DIR` to an absolute path of your choice for the checkouts and run artifacts. If you already have the checkouts elsewhere, pass their locations with `--swebench-dir` and `--task-repo` when running the driver.
+Set `SWEBENCH_EXPERIMENTS_DIR` to an absolute path of your choice for the checkouts and run artifacts. Use `--swebench-dir` for a SWE-bench checkout elsewhere. To use a local task checkout, clone it and pass its path with `--task-repo`.
 
 ```bash
 SWEBENCH_EXPERIMENTS_DIR="/path/to/swebench-experiments"
 mkdir -p "$SWEBENCH_EXPERIMENTS_DIR"
 git clone https://github.com/SWE-bench/SWE-bench.git "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench"
+# Optional local task checkout for --task-repo
 git clone --depth 1 https://github.com/SWE-bench/swe-bench-tasks.git "$SWEBENCH_EXPERIMENTS_DIR/swe-bench-tasks"
 
 cd "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench"
@@ -122,7 +123,7 @@ For Copilot runs, install and authenticate GitHub Copilot CLI separately. The in
 
 ## Run the driver
 
-Run these examples from the driver directory. In a new shell, set `HF_TOKEN` and `SWEBENCH_EXPERIMENTS_DIR` again and activate the SWE-bench environment. Pass `--root` to use the configured directory for both checkouts and run artifacts.
+Run these examples from the driver directory. In a new shell, set `HF_TOKEN` and `SWEBENCH_EXPERIMENTS_DIR` again and activate the SWE-bench environment. Pass `--root` to use the configured directory for the SWE-bench checkout and run artifacts.
 
 ```bash
 source "$SWEBENCH_EXPERIMENTS_DIR/SWE-bench/.venv/bin/activate"
@@ -186,9 +187,9 @@ python run_swebench.py --assistant copilot --help
 | `--count N` | `1` | Randomly selects `N` distinct issues, or selects all in dataset order when `N` is `0`. Must be nonnegative and no greater than the test-split size. |
 | `--seed N` | `0` | Sets the integer seed for reproducible random sampling. Ignored when `--count` is `0`. |
 | `--ids ID [ID ...]` | Select by count and seed | Selects exact instance IDs in the order given, omitting duplicates. Unknown IDs cause an error. Use this in place of `--seed` and `--count`. |
-| `--root PATH` | `~/swebench-experiments` | Sets the output directory's parent and the base path for both checkouts. Pass the directory chosen during setup. |
+| `--root PATH` | `~/swebench-experiments` | Sets the output directory's parent and the default parent of the SWE-bench checkout. Pass the directory chosen during setup. |
 | `--swebench-dir PATH` | `<root>/SWE-bench` | Points to the installed SWE-bench checkout. The driver runs evaluation from this directory. |
-| `--task-repo PATH` | `<root>/swe-bench-tasks` | Points to the SWE-bench task repository used by the evaluator. |
+| `--task-repo PATH` | Evaluator default | Passes a local task repository to the evaluator when supplied. |
 | `--run-id ID` | `<assistant>-lite-YYYYMMDD-HHMMSS` (UTC) | Names the run directory and the evaluation run. Use letters, digits, dots, underscores, or hyphens. |
 | `--generation-workers N` | `1` | Sets the number of patch-generation instances to run in parallel. Must be positive. |
 | `--evaluation-workers N` | `1` | Sets the number of parallel SWE-bench evaluation workers. Must be positive. |
