@@ -45,17 +45,21 @@ def run_actual(tmp_path, monkeypatch, capsys):
     sb_dir = tmp_path / "SWE-bench"
     task_repo = tmp_path / "swe-bench-tasks"
     sb_dir.mkdir()
-    task_repo.mkdir()
     monkeypatch.setattr("shutil.which", lambda executable: f"/usr/bin/{executable}")
     # Keep elapsed durations deterministic while avoiding wall-clock delays in tests.
     monkeypatch.setattr(driver.time, "perf_counter", iter([100.0, 102.5, 200.0, 205.0]).__next__)
 
     def run(*, generate_patch=True, eval_returncode=0, skip_eval=False, extra_args=(),
-            assistant_returncode=0, empty_patch=False, eval_raises=False):
+            assistant_returncode=0, empty_patch=False, eval_raises=False, use_task_repo=True):
         argv = [
             "driver", "--root", str(tmp_path), "--run-id", "test-run",
-            "--swebench-dir", str(sb_dir), "--task-repo", str(task_repo), "--ids", "issue-0",
+            "--swebench-dir", str(sb_dir), "--ids", "issue-0",
         ]
+        task_args = []
+        if use_task_repo:
+            task_repo.mkdir(exist_ok=True)
+            task_args = ["--task-repo", str(task_repo)]
+            argv.extend(task_args)
         if skip_eval:
             argv.append("--skip-eval")
         argv.extend(extra_args)
@@ -74,6 +78,10 @@ def run_actual(tmp_path, monkeypatch, capsys):
             return subprocess.CompletedProcess(args, returncode, stdout=stdout)
 
         def fake_evaluation(args, *, cwd, log):
+            assert args == [
+                "swebench", "eval", "lite", "-p", str(log.parent / "predictions.jsonl"),
+                "--run-id", "test-run", *task_args, "-j", "1",
+            ]
             if eval_raises:
                 raise OSError("cannot launch evaluator")
             return eval_returncode
@@ -250,8 +258,9 @@ def test_unknown_ids_and_incompatible_options(run_driver, args, message):
     assert message in error
 
 
-def test_actual_run_records_separate_generation_and_evaluation_durations(run_actual):
-    result, output, _, metadata = run_actual()
+@pytest.mark.parametrize("use_task_repo", [False, True])
+def test_actual_run_records_separate_generation_and_evaluation_durations(run_actual, use_task_repo):
+    result, output, _, metadata = run_actual(use_task_repo=use_task_repo)
 
     assert result == 0
     assert metadata == {
@@ -265,6 +274,14 @@ def test_actual_run_records_separate_generation_and_evaluation_durations(run_act
     assert "Generation duration: 2.50 seconds" in output
     assert "SWE-bench evaluation duration: 5.00 seconds" in output
     assert output.rstrip().splitlines()[-1].startswith("Run metadata: ")
+
+
+def test_explicit_missing_task_repo_is_rejected(run_actual, tmp_path):
+    missing_repo = tmp_path / "missing"
+    result, _, error, _ = run_actual(use_task_repo=False, extra_args=("--task-repo", str(missing_repo)))
+
+    assert result == 2
+    assert f"Task repository not found: {missing_repo}" in error
 
 
 def test_skipped_evaluation_records_null_duration(run_actual):
@@ -478,13 +495,17 @@ def test_generation_workers_limit_concurrency_and_preserve_order(tmp_path, monke
 
 
 @pytest.mark.parametrize("returncode", [0, 7])
-def test_skip_generation_evaluates_saved_predictions(tmp_path, monkeypatch, returncode):
+@pytest.mark.parametrize("use_task_repo", [False, True])
+def test_skip_generation_evaluates_saved_predictions(tmp_path, monkeypatch, returncode, use_task_repo):
     run_dir = tmp_path / "runs" / "saved"
     run_dir.mkdir(parents=True)
     sb_dir = tmp_path / "SWE-bench"
     sb_dir.mkdir()
     task_repo = tmp_path / "swe-bench-tasks"
-    task_repo.mkdir()
+    task_args = []
+    if use_task_repo:
+        task_repo.mkdir()
+        task_args = ["--task-repo", str(task_repo)]
     artifacts = {
         "predictions.jsonl": json.dumps({
             "instance_id": "issue-0", "model_name_or_path": "codex-cli", "model_patch": "patch",
@@ -499,13 +520,13 @@ def test_skip_generation_evaluates_saved_predictions(tmp_path, monkeypatch, retu
     monkeypatch.setattr("shutil.which", {"swebench": "/bin/swebench", "docker": "/bin/docker"}.get)
     monkeypatch.setattr(sys, "argv", [
         "driver", "--root", str(tmp_path), "--skip-generation", "--run-id", "saved",
-        "--evaluation-workers", "3",
+        "--evaluation-workers", "3", *task_args,
     ])
 
     def evaluate(args, *, cwd, log):
         assert args == [
             "swebench", "eval", "lite", "-p", str(run_dir / "predictions.jsonl"),
-            "--run-id", "saved", "--task-repo", str(task_repo), "-j", "3",
+            "--run-id", "saved", *task_args, "-j", "3",
         ]
         assert cwd == sb_dir
         assert log == run_dir / "evaluation.log"
