@@ -2,7 +2,7 @@
 |----------|:--------------:|---------|-----|-----|------------|
 |SWEBench Lite (300)|Codex|gpt-6.2-sol|Medium| ~64% of weekly quota| Insufficient Resources for Evaluation |
 |SWEBench Lite (100)|Codex|gpt-6.2-sol|Medium| ~27% of weekly quota| 74% (74 out of 100)|
-|SWEBench Lite (100)|Codex|gpt-6.1-terra|Medium| ~10% of weekly quota| |
+|SWEBench Lite (100)|Codex|gpt-6.1-terra|Medium| ~10% of weekly quota| 69% (68 out of 99) |
 |SWEBench Lite (100)|Copilot|gpt-6.1-terra|Medium| 753 AI Credits of monthly quota| 70% (69 out of 99, see note in copilot-100) |
 
 ```mermaid
@@ -17,9 +17,9 @@ config:
 ---
 xychart-beta
     title "Resolution Comparison Codex/Copilot"
-    x-axis "Coding Assistant" ["copilot-100: gpt-6.1-terra / Medium", "codex-100: gpt-6.2-sol / Medium"]
+    x-axis "Coding Assistant" ["copilot-100: gpt-6.1-terra / Medium", "codex-100: gpt-6.2-sol / Medium", "codex-100-6.1-terra: gpt-6.1-terra / Medium"]
     y-axis "Resolution (%)" 0 --> 100
-    bar [70, 74]
+    bar [70, 74, 69]
 ```
 
 Example evaluation command
@@ -38,11 +38,12 @@ swebench eval lite -p "$SWEBENCH_EXPERIMENTS_DIR/runs/codex-lite/predictions.jso
 | Run | Cloned instance repositories | Docker evaluation images |
 | --- | ---: | ---: |
 | `codex-100` | ~28 GB (100 clones) | ~71 GB (100 images) |
+| `codex-100-6.1-terra` | ~28 GB (100 clones) | ~71 GB (99 images used) |
 | `copilot-100` | ~29 GB (100 clones) | ~71 GB (99 images used) |
 
-Repository estimates come from `du` on the saved per-instance `repo/` directories after patch generation, including Git history, working trees, and any generated files left inside them. The measured totals were 28.48 GB for Codex and 29.01 GB for Copilot, a difference of about 0.54 GB before rounding. Git packfiles totaled about 23 GB in each run and differed by less than 1 MB in aggregate. For example, the Copilot workspace for `scikit-learn__scikit-learn-14087` used about 96 MB more, mostly under `build/` and `sklearn/`, while its `.git` directory used the same space as Codex's. The workspace directories for both runs occupy about **57 GB** combined.
+Repository estimates come from `du` on the saved per-instance `repo/` directories after patch generation, including Git history, working trees, and any generated files left inside them. The measured totals were 28.48 GB for Codex and 29.01 GB for Copilot, a difference of about 0.54 GB before rounding. Git packfiles totaled about 23 GB in each run and differed by less than 1 MB in aggregate. For example, the Copilot workspace for `scikit-learn__scikit-learn-14087` used about 96 MB more, mostly under `build/` and `sklearn/`, while its `.git` directory used the same space as Codex's. The Codex GPT-6.1-Terra run used 28.39 GB for its workspaces, bringing the total for all three runs to about **86 GB**.
 
-Docker reported about **71 GB** for the shared set of 100 SWE-bench images after accounting for shared layers and subtracting unrelated images. Copilot evaluated 99 of the same instances, so the table uses the measured shared-set size as its estimate. Count the image storage once for the two runs. The estimates exclude Docker build cache, evaluation logs, and other run artifacts.
+Docker reported about **71 GB** for the shared set of 100 SWE-bench images after accounting for shared layers and subtracting unrelated images. Both GPT-6.1-Terra runs evaluated the same 99 instances, so the table uses the measured shared-set size as its estimate. Count the image storage once across all three runs. The estimates exclude Docker build cache, evaluation logs, and other run artifacts.
 
 ## Results codex-100
 
@@ -105,6 +106,52 @@ python run_swebench.py --root "$SWEBENCH_EXPERIMENTS_DIR" \
   --assistant codex --run-id codex-100-6.1-terra --model gpt-6.1-terra --reasoning-effort medium \
   --seed 42 --count 100 --generation-workers 4 --evaluation-workers 4
 ```
+
+Dataset: SWE-bench/SWE-bench_Lite (test split, 300 instances)
+
+Run ID: codex-100-6.1-terra
+
+Selected (100): Same 100 issues as [`codex-100`](#results-codex-100).
+
+**Note:** Codex produced no patch for `sphinx-doc__sphinx-8474`, so the evaluator received 99 of the 100 selected cases.
+
+### Run Metadata JSON ([`run_metadata.json`](./artifacts/codex-100-62-terra-run-metadata.json))
+
+```json
+{
+  "run_id": "codex-100-6.1-terra",
+  "assistant": "codex",
+  "model": "gpt-6.1-terra",
+  "reasoning_effort": "medium",
+  "generation_duration_seconds": 1726.0354136249998,
+  "evaluation_duration_seconds": 3741.8573679170004
+}
+```
+
+### Evaluation Log ([`evaluation.log`](./artifacts/codex-100-62-terra-evaluation.log))
+
+```text
+Total instances: 2294
+Instances submitted: 99
+Instances completed: 99
+Instances incomplete: 2195
+Instances resolved: 68
+Instances unresolved: 31
+Instances with likely infrastructure failures: 0
+Instances with ambiguous failures: 2
+Instances with empty patches: 0
+Instances with errors: 0
+Unstopped containers: 0
+Unremoved images: 100
+Report written to logs/evaluation/codex-100-6.1-terra/results.json
+```
+
+### Test Case Results JSON
+
+Overall summary of the 99 evaluated cases in [`results.json`](./artifacts/codex-100-62-terra-results.json).
+
+- Example of a **resolved** test case [`django__django-11001`](./artifacts/codex-100-62-terra-test-case-resolved-example.json)
+- Example of an **unresolved** test case [`django__django-11283`](./artifacts/codex-100-62-terra-test-case-unresolved-example.json)
 
 ## Results copilot-100
 

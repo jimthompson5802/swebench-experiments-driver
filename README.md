@@ -10,21 +10,23 @@ For the work reported in this repo, the recorded experiments use a 100-issue sub
 
 ## Recorded experiments
 
-The two runs below selected the same 100 SWE-bench Lite issues with seed `42`.
-Copilot produced patches for 99 issues, so its evaluation covered 99 of the 100 selected issues.
+The three runs below selected the same 100 SWE-bench Lite issues with seed `42`.
+Both GPT-6.1-Terra runs produced patches for 99 issues and omitted `sphinx-doc__sphinx-8474` from evaluation.
 The [workflow description](docs/swebench-workflow.md) traces patch generation and Docker evaluation. The [experiment notes](docs/swebench-notes.md) contain the run commands, logs, metadata, and examples of resolved and unresolved cases.
 
 | Run | Model | Reasoning effort | Resolved / evaluated |
 | --- | --- | --- | --- |
 | [`codex-100`](docs/artifacts/codex-100-results.json) | `gpt-6.2-sol` | `medium` | 74 / 100 (74%) |
+| [`codex-100-6.1-terra`](docs/artifacts/codex-100-62-terra-results.json) | `gpt-6.1-terra` | `medium` | 68 / 99 (~69%) |
 | [`copilot-100`](docs/artifacts/copilot-100-results.json) | `gpt-6.1-terra` | `medium` | 69 / 99 (~70%)|
 
 | Run | Patch generation | Docker evaluation | Total elapsed | Cloned workspaces |
 | --- | ---: | ---: | ---: | ---: |
 | `codex-100` | 45 min | 62 min | 1 hr 47 min | ~28 GB |
+| `codex-100-6.1-terra` | 29 min | 62 min | 1 hr 31 min | ~28 GB |
 | `copilot-100` | 44 min | 60 min | 1 hr 44 min | ~29 GB |
 
-The Docker evaluation images took up about **71 GB** for the shared set of 100 images. Copilot used 99 of those images. Together, the cloned workspaces and shared images occupied about **128 GB**, excluding Docker build cache, logs, and other artifacts. See the [storage estimates](docs/swebench-notes.md#estimated-disk-storage) for the measurement details.
+The Docker evaluation images took up about **71 GB** for the shared set of 100 images. Both GPT-6.1-Terra runs used the same 99 images. Together, the cloned workspaces and shared images occupied about **157 GB**, excluding Docker build cache, logs, and other artifacts. See the [storage estimates](docs/swebench-notes.md#estimated-disk-storage) for the measurement details.
 
 ## Analyze generation tokens and estimated costs
 
@@ -35,6 +37,7 @@ The [token usage notebook](notebooks/coding-assistant-tokens.ipynb) reports inpu
 | Run ID | Model | Attempts counted | Coverage | Total input | Cached input reads | Cache writes | Output |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | codex-100 | gpt-6.2-sol | 100/100 | Complete | 42,760,124 | 38,936,192 | 0 | 282,735 |
+| codex-100-6.1-terra | gpt-6.1-terra | 100/100 | Complete | 25,878,714 | 24,342,784 | 0 | 150,684 |
 | copilot-100 | gpt-6.1-terra | 100/100 | Complete | 51,152,386 | 48,583,842 | 2,563,075 | 465,774 |
 
 ### Standard token rates (USD per million)
@@ -44,6 +47,7 @@ OpenAI API Standard short-context pricing (30-minute cache writes) and GitHub Co
 | Assistant | Model | Ordinary input | Cache reads | Cache writes | Output | Source |
 | --- | --- | --- | --- | --- | --- | --- |
 | codex | gpt-6.2-sol | $2.0 | $0.1 | $2.5 | $10.0 | [Vendor pricing](https://developers.openai.com/api/docs/models/gpt-6.2-sol) |
+| codex | gpt-6.1-terra | $1.0 | $0.05 | $1.25 | $5.0 | [Vendor pricing](https://developers.openai.com/api/docs/models/gpt-6.1-terra) |
 | copilot | gpt-6.1-terra | $1.0 | $0.05 | $1.25 | $5.0 | [Vendor pricing](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing) |
 
 ### Estimated generation costs (USD)
@@ -53,6 +57,7 @@ These estimates apply the notebook’s checked-in rates to recorded usage. Actua
 | Run ID | Model | Coverage | Ordinary input | Cache reads | Cache writes | Output | Total |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | codex-100 | gpt-6.2-sol | Complete | $7.6479 | $3.8936 | $0.0000 | $2.8274 | $14.3688 |
+| codex-100-6.1-terra | gpt-6.1-terra | Complete | $1.5359 | $1.2171 | $0.0000 | $0.7534 | $3.5065 |
 | copilot-100 | gpt-6.1-terra | Complete | $0.0055 | $2.4292 | $3.2038 | $2.3289 | $7.9674 |
 
 ### Reproduce the analysis

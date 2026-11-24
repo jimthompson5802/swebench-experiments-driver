@@ -1,0 +1,8 @@
+{
+  "run_id": "codex-100-6.1-terra",
+  "assistant": "codex",
+  "model": "gpt-6.1-terra",
+  "reasoning_effort": "medium",
+  "generation_duration_seconds": 1726.0354136249998,
+  "evaluation_duration_seconds": 3741.8573679170004
+}
