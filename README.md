@@ -52,13 +52,13 @@ OpenAI API Standard short-context pricing (30-minute cache writes) and GitHub Co
 
 ### Estimated generation costs (USD)
 
-These estimates apply the notebook’s checked-in rates to recorded usage. Actual charges depend on context tiers, cache retention, and plan billing.
+These estimates apply the notebook’s checked-in rates to recorded usage. Average Cost divides the total by all 100 selected test cases per run. Actual charges depend on context tiers, cache retention, and plan billing.
 
-| Run ID | Model | Coverage | Ordinary input | Cache reads | Cache writes | Output | Total |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| codex-100 | gpt-6.2-sol | Complete | $7.6479 | $3.8936 | $0.0000 | $2.8274 | $14.3688 |
-| codex-100-6.1-terra | gpt-6.1-terra | Complete | $1.5359 | $1.2171 | $0.0000 | $0.7534 | $3.5065 |
-| copilot-100 | gpt-6.1-terra | Complete | $0.0055 | $2.4292 | $3.2038 | $2.3289 | $7.9674 |
+| Run ID | Model | Coverage | Ordinary input | Cache reads | Cache writes | Output | Total | Average Cost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| codex-100 | gpt-6.2-sol | Complete | $7.6479 | $3.8936 | $0.0000 | $2.8274 | $14.3688 | $0.1437 |
+| codex-100-6.1-terra | gpt-6.1-terra | Complete | $1.5359 | $1.2171 | $0.0000 | $0.7534 | $3.5065 | $0.0351 |
+| copilot-100 | gpt-6.1-terra | Complete | $0.0055 | $2.4292 | $3.2038 | $2.3289 | $7.9674 | $0.0797 |
 
 ### Reproduce the analysis
 
