@@ -10,15 +10,15 @@ For the work reported in this repo, the recorded experiments use a 100-issue sub
 
 ## Recorded experiments
 
-The three runs below selected the same 100 SWE-bench Lite issues with seed `42`.
+The three runs below selected the same 100 SWE-bench Lite issues with seed `42`. Resolution rates use all 100 selected issues.
 Both GPT-6.1-Terra runs produced patches for 99 issues and omitted `sphinx-doc__sphinx-8474` from evaluation.
 The [workflow description](docs/swebench-workflow.md) traces patch generation and Docker evaluation. The [experiment notes](docs/swebench-notes.md) contain the run commands, logs, metadata, and examples of resolved and unresolved cases.
 
-| Run | Model | Reasoning effort | Resolved / evaluated |
+| Run | Model | Reasoning effort | Resolved / selected |
 | --- | --- | --- | --- |
 | [`codex-100`](docs/artifacts/codex-100-results.json) | `gpt-6.2-sol` | `medium` | 74 / 100 (74%) |
-| [`codex-100-6.1-terra`](docs/artifacts/codex-100-62-terra-results.json) | `gpt-6.1-terra` | `medium` | 68 / 99 (~69%) |
-| [`copilot-100`](docs/artifacts/copilot-100-results.json) | `gpt-6.1-terra` | `medium` | 69 / 99 (~70%)|
+| [`codex-100-6.1-terra`](docs/artifacts/codex-100-62-terra-results.json) | `gpt-6.1-terra` | `medium` | 68 / 100 (68%) |
+| [`copilot-100`](docs/artifacts/copilot-100-results.json) | `gpt-6.1-terra` | `medium` | 69 / 100 (69%)|
 
 | Run | Patch generation | Docker evaluation | Total elapsed | Cloned workspaces |
 | --- | ---: | ---: | ---: | ---: |

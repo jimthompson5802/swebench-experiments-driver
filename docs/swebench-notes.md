@@ -2,8 +2,8 @@
 |----------|:--------------:|---------|-----|-----|------------|
 |SWEBench Lite (300)|Codex|gpt-6.2-sol|Medium| ~64% of weekly quota| Insufficient Resources for Evaluation |
 |SWEBench Lite (100)|Codex|gpt-6.2-sol|Medium| ~27% of weekly quota| 74% (74 out of 100)|
-|SWEBench Lite (100)|Codex|gpt-6.1-terra|Medium| ~10% of weekly quota| 69% (68 out of 99) |
-|SWEBench Lite (100)|Copilot|gpt-6.1-terra|Medium| 753 AI Credits of monthly quota| 70% (69 out of 99, see note in copilot-100) |
+|SWEBench Lite (100)|Codex|gpt-6.1-terra|Medium| ~10% of weekly quota| 68% (68 out of 100) |
+|SWEBench Lite (100)|Copilot|gpt-6.1-terra|Medium| 753 AI Credits of monthly quota| 69% (69 out of 100, see note in copilot-100) |
 
 ```mermaid
 ---
@@ -19,7 +19,7 @@ xychart-beta
     title "Resolution Comparison Codex/Copilot"
     x-axis "Coding Assistant" ["copilot-100: gpt-6.1-terra / Medium", "codex-100: gpt-6.2-sol / Medium", "codex-100-6.1-terra: gpt-6.1-terra / Medium"]
     y-axis "Resolution (%)" 0 --> 100
-    bar [70, 74, 69]
+    bar [69, 74, 68]
 ```
 
 Example evaluation command
